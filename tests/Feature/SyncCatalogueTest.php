@@ -8,6 +8,7 @@ use App\Catalogue\ShowRecord;
 use App\Models\Show;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
 class SyncCatalogueTest extends TestCase
@@ -109,6 +110,18 @@ class SyncCatalogueTest extends TestCase
         $this->assertSame(3, Show::count());
     }
 
+    public function test_it_logs_the_reason_when_the_source_fails(): void
+    {
+        Log::spy();
+        $this->fakeSource(new CatalogueUnavailable('https://lwtv.local returned HTTP 500.'));
+
+        $this->artisan('lwtv:sync')->assertExitCode(1);
+
+        Log::shouldHaveReceived('error')
+            ->with('Catalogue sync failed', ['reason' => 'https://lwtv.local returned HTTP 500.'])
+            ->once();
+    }
+
     public function test_it_is_scheduled_every_six_hours(): void
     {
         $events = collect(app(Schedule::class)->events())
@@ -117,5 +130,7 @@ class SyncCatalogueTest extends TestCase
         $this->assertCount(1, $events);
         $this->assertSame('0 */6 * * *', $events->first()->expression);
         $this->assertTrue($events->first()->withoutOverlapping);
+        // A killed run must not block syncing for the default 24 hours.
+        $this->assertSame(30, $events->first()->expiresAt);
     }
 }

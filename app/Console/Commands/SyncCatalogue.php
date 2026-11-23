@@ -7,6 +7,7 @@ use App\Catalogue\CatalogueUnavailable;
 use App\Models\Show;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class SyncCatalogue extends Command
 {
@@ -21,6 +22,8 @@ class SyncCatalogue extends Command
             $records = $source->shows();
         } catch (CatalogueUnavailable $e) {
             $this->error("Catalogue sync failed: {$e->getMessage()}");
+            // Scheduled output is discarded, so the log is the only record of why.
+            Log::error('Catalogue sync failed', ['reason' => $e->getMessage()]);
 
             return self::FAILURE;
         }

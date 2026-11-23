@@ -134,6 +134,40 @@ class LwtvListShowsSourceTest extends TestCase
         (new LwtvListShowsSource)->shows();
     }
 
+    public function test_it_throws_when_no_entry_is_usable(): void
+    {
+        Http::fake([self::URL => Http::response('{"1": "x", "2": {"title": "", "url": ""}}', 200)]);
+
+        $this->expectException(CatalogueUnavailable::class);
+        (new LwtvListShowsSource)->shows();
+    }
+
+    public function test_it_throws_when_the_payload_is_wrapped(): void
+    {
+        Http::fake([self::URL => Http::response(
+            '{"shows": {"27002": {"title": ".hack//SIGN", "url": "https://lwtv.local/show/hack-sign/", "onair": "no"}}}',
+            200,
+        )]);
+
+        $this->expectException(CatalogueUnavailable::class);
+        (new LwtvListShowsSource)->shows();
+    }
+
+    public function test_it_skips_entries_without_a_numeric_id_title_or_url(): void
+    {
+        Http::fake([self::URL => Http::response(json_encode([
+            '27002' => ['title' => '.hack//SIGN', 'url' => 'https://lwtv.local/show/hack-sign/', 'onair' => 'no'],
+            'code' => ['title' => 'Not a show', 'url' => 'https://lwtv.local/show/x/'],
+            '0' => ['title' => 'Zero', 'url' => 'https://lwtv.local/show/zero/'],
+            '5' => ['title' => '', 'url' => 'https://lwtv.local/show/five/'],
+            '6' => ['title' => 'No URL'],
+        ]), 200)]);
+
+        $ids = array_map(fn ($show) => $show->id, (new LwtvListShowsSource)->shows());
+
+        $this->assertSame([27002], $ids);
+    }
+
     public function test_it_throws_when_upstream_cannot_be_reached(): void
     {
         Http::fake([self::URL => fn () => throw new ConnectionException('timed out')]);

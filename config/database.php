@@ -35,11 +35,15 @@ return [
         'sqlite' => [
             'driver' => 'sqlite',
             'url' => env('DB_URL'),
-            'database' => env('DB_DATABASE', database_path('database.sqlite')),
+            // Matches the Docker volume and docker/php/entrypoint.sh, so a
+            // missing DB_DATABASE can't send writes into the container layer.
+            'database' => env('DB_DATABASE', database_path('data/database.sqlite')),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
-            'busy_timeout' => null,
-            'journal_mode' => null,
+            // app and scheduler share this file: WAL lets reads continue during
+            // a sync, and busy_timeout waits for a lock instead of failing.
+            'busy_timeout' => 5000,
+            'journal_mode' => 'wal',
             'synchronous' => null,
             'transaction_mode' => 'DEFERRED',
         ],

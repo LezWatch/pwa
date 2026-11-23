@@ -40,12 +40,28 @@ class LwtvListShowsSource implements CatalogueSource
 
         $shows = [];
         foreach ($entries as $id => $entry) {
-            if (is_array($entry)) {
-                $shows[] = $this->toShowRecord((int) $id, $entry);
+            if (! $this->isUsable($id, $entry)) {
+                continue;
+            }
+            $show = $this->toShowRecord((int) $id, $entry);
+            if ($show->title !== '' && $show->url !== '') {
+                $shows[] = $show;
             }
         }
 
+        // A changed or wrapped payload can decode fine yet hold no shows. Treat
+        // that like a failed fetch, so sync never empties the catalogue.
+        if ($shows === []) {
+            throw new CatalogueUnavailable("{$url} returned no usable shows.");
+        }
+
         return $shows;
+    }
+
+    /** A real entry has a positive numeric id key and an object value. */
+    private function isUsable(int|string $id, mixed $entry): bool
+    {
+        return is_array($entry) && ctype_digit((string) $id) && (int) $id > 0;
     }
 
     /**
