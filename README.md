@@ -212,6 +212,10 @@ You need a Google Workspace super admin for step 4.
   next recheck.
 - If Google can't be reached or answers with an error, access is refused, and
   someone already signed in is signed out.
+- If every sign-in says "We could not check your access" and the log shows a
+  403 from `admin.googleapis.com`, the service account's role doesn't cover
+  Directory API reads. Check that the Admin SDK API is enabled. If it is, assign
+  the **Groups Admin** role instead of Groups Reader (it can also edit groups).
 
 ## Point at production
 
