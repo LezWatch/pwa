@@ -30,11 +30,28 @@ class UseAdminSession
         ]));
 
         try {
-            return $next($request);
+            $response = $next($request);
+            $this->moveQueuedCookiesTo($response);
+
+            return $response;
         } finally {
-            // Tests reuse the app between requests; put these back so public
-            // pages get the defaults. (Under php-fpm each request starts fresh.)
+            // A long-lived worker (or a test) reuses the app between requests;
+            // put everything back so public pages get the defaults and nothing
+            // queued here can follow them. Under php-fpm each request starts fresh.
+            app('cookie')->flushQueuedCookies();
             $this->apply($previous);
+        }
+    }
+
+    /**
+     * The cookie driver queues the session payload on the shared cookie jar.
+     * Attach it to this response now (EncryptCookies, further out, still
+     * encrypts it) so the jar can be emptied before the next request.
+     */
+    private function moveQueuedCookiesTo(Response $response): void
+    {
+        foreach (app('cookie')->getQueuedCookies() as $cookie) {
+            $response->headers->setCookie($cookie);
         }
     }
 

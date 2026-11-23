@@ -52,4 +52,21 @@ class PublicCookiesTest extends TestCase
 
         $this->get('/')->assertOk();
     }
+
+    public function test_cookie_driver_admin_cookies_do_not_leak_into_later_requests(): void
+    {
+        // Production's cookie driver queues the session payload on the cookie
+        // jar. A long-lived worker must not carry it into the next request.
+        config(['session.driver' => 'cookie']);
+        app('session')->forgetDrivers();
+        app()->forgetInstance('session.store');
+
+        $this->get('/secret-door/login')->assertOk();
+
+        $this->assertSame([], array_map(
+            fn ($c) => $c->getName(),
+            $this->get('/')->headers->getCookies(),
+        ));
+        $this->assertSame([], app('cookie')->getQueuedCookies());
+    }
 }

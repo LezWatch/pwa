@@ -246,6 +246,9 @@ class AdminAccessTest extends TestCase
         $this->assertGreaterThanOrEqual(2, count($cookies));
         foreach ($cookies as $cookie) {
             $this->assertSame('/secret-door', $cookie->getPath(), "{$cookie->getName()} escaped the admin path.");
+            // Still encrypted on the way out: no session payload in plain text.
+            $this->assertStringNotContainsString('_token', base64_decode(strtr($cookie->getValue(), '-_', '+/'), false) ?: '');
+            $this->assertStringNotContainsString('_token', urldecode($cookie->getValue()));
         }
     }
 
