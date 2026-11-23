@@ -39,8 +39,18 @@ front-end JS, images, tests, plain dependency bumps) and none is on the
 high-risk list. The high-risk list always wins, so `tests/TestCase.php` is high
 even though `tests/*` is low.
 
-Both lists are read from the PR's **base** commit. A PR can't loosen the rules
-it is judged by.
+Both lists are read from the PR's **base** commit, so editing them in a PR
+doesn't change how that PR is judged.
+
+> **Known gap: a PR that edits `.github/` can still get around the gate.**
+> `risk-tier.yml` runs on `pull_request`, so GitHub runs the PR's own copy of
+> the workflow and of `risk_tier.py`. A PR could rewrite either to pass, add a
+> job named `risk-tier` that always passes, or post its own `human-review`
+> status from any workflow it edits. Any change to `.github/` is high risk, so
+> read those diffs closely: a PR that touches the gate itself is the one to
+> distrust. Closing this needs a settings change (an org ruleset that requires
+> the gate workflow from a protected ref) or a redesign, and hasn't been done
+> yet. Anyone holding Mika's own GitHub credentials can do anything Mika can.
 
 ## 2. Approve a high-risk PR
 
@@ -74,10 +84,16 @@ extensions (`*.php`), or you'll allow far more than you meant.
 
 Done once, after the gate's own PR merges. Each step changes repo settings.
 
+**Protect `production` only after the gate reaches it.** Until `release/0.0.1`
+merges into `production`, `production` has no `.github/osv-scanner.toml` (the
+OSV PR scan errors on every PR into it, including Dependabot's) and no risk
+lists (PRs into it are judged by their own copies). So the ruleset covers
+`release/**` first, and `production` is added once the gate is on it.
+
 * Repository variable `HUMAN_REVIEWERS` = `ipstenu` (Settings → Secrets and
   variables → Actions → Variables; comma-separated for more than one).
 * Labels `human-reviewed` and `risk: high`.
-* One ruleset on `production` and `release/**`: no deletion, no force-push,
+* One ruleset on `release/**` (then `production`, see above): no deletion, no force-push,
   changes through a PR (merge commit only), and required checks `PHPUnit`,
   `Docker build`, `security`, `risk-tier`, `scan-pr / osv-scan`. No bypass
   actors. GitHub only offers checks it has already seen run, so add the ruleset

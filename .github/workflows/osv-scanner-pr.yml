@@ -3,6 +3,9 @@ name: OSV-Scanner PR Scan
 on:
   pull_request:
     branches: [production, 'release/**']
+    # `edited` covers a changed base branch: this is a required check, and a PR
+    # retargeted from release/* to production must be re-scanned against the new base.
+    types: [opened, synchronize, reopened, edited]
   merge_group:
     branches: [production, 'release/**']
 
