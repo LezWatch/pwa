@@ -70,6 +70,20 @@ Files:
 - `docker/php/Dockerfile`, `docker/nginx/default.conf`.
 - `compose.yaml` (production shape) + `compose.override.yaml` (local: bind
   mount source, `APP_DEBUG=true`).
+- The published port comes from `.env` (`APP_PORT`, default 8069).
+
+LWTV API location:
+
+- `LWTV_API_URL` in `.env` sets the base URL. Production default:
+  `https://lezwatchtv.com`.
+- Locally, Mika is building the new app API (#755) on a Local site at
+  `lwtv.local` first, so `.env` for local points at `https://lwtv.local`.
+- `lwtv.local` resolves through the Mac's `/etc/hosts` to 127.0.0.1, which
+  inside a container means the container itself. `compose.override.yaml`
+  therefore adds `extra_hosts: ["lwtv.local:host-gateway", "www.lwtv.local:host-gateway"]`
+  to `app` and `scheduler` so the name reaches the Mac.
+- Local's HTTPS certificate is self-signed. `LWTV_API_VERIFY_TLS` (default
+  `true`) is set to `false` only in local `.env`.
 
 Data path:
 
