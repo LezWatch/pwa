@@ -55,14 +55,19 @@ class LwtvListShowsSource implements CatalogueSource
      */
     public function toShowRecord(int $id, array $entry): ShowRecord
     {
-        // TODO(Mika): build the ShowRecord from $entry. The tests in
-        // tests/Unit/LwtvListShowsSourceTest.php are the spec:
-        //   - title: decode HTML entities (&#8217; → ’, &#038; → &) and trim
-        //     whitespace, including a trailing non-breaking space (U+00A0)
-        //   - slug: the last non-empty path segment of the URL, with or
-        //     without a trailing slash
-        //   - onAir: true only for "yes", any case; missing or anything else
-        //     is false
-        throw new \LogicException('toShowRecord() not written yet');
+        $url = (string) ($entry['url'] ?? '');
+
+        // WordPress sends entities (&#8217;, &#038;) and sometimes a trailing
+        // non-breaking space, which plain trim() leaves behind.
+        $title = html_entity_decode((string) ($entry['title'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $title = preg_replace('/^[\s\x{00A0}]+|[\s\x{00A0}]+$/u', '', $title) ?? $title;
+
+        // Last non-empty path segment: /show/hack-sign/ and /show/hack-sign both give hack-sign.
+        $segments = array_values(array_filter(explode('/', (string) parse_url($url, PHP_URL_PATH)), 'strlen'));
+        $slug = $segments === [] ? '' : end($segments);
+
+        $onAir = strtolower(trim((string) ($entry['onair'] ?? ''))) === 'yes';
+
+        return new ShowRecord($id, $title, $slug, $url, $onAir);
     }
 }
