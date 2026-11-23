@@ -5,6 +5,7 @@
     "scripts": {
         "build": "docker compose up -d --build",
         "start": "docker compose up -d",
+        "restart": "docker compose restart",
         "stop": "docker compose down",
         "installer": "npm install && composer install",
         "build:assets": "vite build",
