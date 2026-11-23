@@ -1,0 +1,41 @@
+name: lwtv-pwa
+
+# Production shape. Runs the same way locally (with compose.override.yaml
+# layered on top automatically) and on the server (with -f compose.yaml only).
+services:
+  app:
+    build:
+      context: .
+      target: app
+    image: lwtv-pwa-app
+    env_file: .env
+    environment:
+      RUN_MIGRATIONS: "true"
+    volumes:
+      - lwtv-data:/var/www/html/database/data
+    restart: unless-stopped
+
+  scheduler:
+    image: lwtv-pwa-app
+    env_file: .env
+    command: ["php", "artisan", "schedule:work"]
+    user: www-data
+    volumes:
+      - lwtv-data:/var/www/html/database/data
+    depends_on:
+      - app
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      target: web
+    image: lwtv-pwa-web
+    ports:
+      - "127.0.0.1:${APP_PORT:-8069}:80"
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  lwtv-data:
