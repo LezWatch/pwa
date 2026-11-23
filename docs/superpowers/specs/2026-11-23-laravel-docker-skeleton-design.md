@@ -1,7 +1,7 @@
 # Laravel on Docker: local skeleton (design)
 
 Date: 2026-11-23
-Status: draft, awaiting approval
+Status: approved 2026-11-23
 
 ## Intent
 
@@ -60,7 +60,8 @@ Containers (one process each):
   `app:9000`. Publishes `127.0.0.1:8069`.
 - `scheduler`: same image as `app`, runs `php artisan schedule:work`.
 
-Data: SQLite file on a named volume (`storage/`). Postgres is a later swap if
+Data: SQLite file on a named volume mounted at `database/data/` (logs go to
+stderr, so `storage/` doesn't need to persist). Postgres is a later swap if
 rating writes need it.
 
 Files:
