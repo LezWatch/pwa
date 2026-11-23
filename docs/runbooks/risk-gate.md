@@ -51,7 +51,14 @@ A change to the gate itself only takes effect after it merges.
 > so the real gate still calls it high. When a PR adds or changes a workflow,
 > read the workflow before merging, even if everything is green. Fully closing
 > this needs an org ruleset that requires `risk-tier.yml` from a protected ref.
-> And anyone holding Mika's own GitHub login can do anything Mika can.
+
+> **Biggest gap: agents that use Mika's login.** The gate tells people apart by
+> GitHub login. An agent working under Mika's own account (her `gh` login, a
+> token she made) *is* Mika as far as GitHub knows. It can add the label
+> itself, and the gate counts it. It could even edit `HUMAN_REVIEWERS`. While
+> agents run as Mika, the gate holds back other people and bots, **not those
+> agents**. To close it, give agents their own GitHub account or App, never
+> list it in `HUMAN_REVIEWERS`, and keep its rights below admin.
 
 ## 2. Approve a high-risk PR
 
@@ -70,10 +77,12 @@ so any new commit needs a new review. The workflow removes the stale label on
 each push; add it again once you've read the new changes. Removing the label
 withdraws the review.
 
-**Why an agent's label doesn't count:** only logins in the `HUMAN_REVIEWERS`
-repository variable count, and only real user accounts. A label added by anyone
-else, or by a bot or a workflow token, counts for nothing, and the workflow
-removes it. Otherwise an agent could approve its own work.
+**Whose label counts:** only logins in the `HUMAN_REVIEWERS` repository
+variable, and only real user accounts. A label added by anyone else counts for
+nothing; if a person added it, the workflow removes it. A label added by a
+workflow token doesn't trigger the gate, so it stays visible on the PR, but it
+still counts for nothing. An agent using Mika's own login is the exception: see
+the biggest gap above.
 
 **PRs from forks** can't be approved by label: their pushes aren't in this
 repo's records. Push the branch to this repo instead.
@@ -115,10 +124,11 @@ The label was added before the last push, or by someone not in
 **Human review** line says which. It also shows in the "Check for a human
 review" step.
 
-**The reason says "Couldn't find when … was pushed".**
-The gate couldn't find the push in the repository's activity records. That
-happens with a PR from a fork, or if GitHub's API failed. It fails closed. For
-an API failure, re-run the job.
+**The reason says "Couldn't tell when … was pushed".**
+The newest push in the repository's activity records for the PR's branch isn't
+the PR's head commit. That happens with a PR from a fork, if the branch moved
+by some route GitHub doesn't log as a push, or if the API failed. It fails
+closed. Re-run the job; if it's still red, push a new commit and review that.
 
 **The label vanished right after I added it.**
 Your login isn't in `HUMAN_REVIEWERS`, or the variable is unset (unset means
@@ -132,4 +142,7 @@ it and add the label as usual.
 **I retargeted a PR from `release/*` to `production` and the checks re-ran.**
 That's on purpose. The diff is recomputed against the new base. Your review
 still counts if there has been no push since, because it covers the commit you
-read.
+read. The diff against `production` can be bigger than what you read, but
+everything else in it already passed this gate when it merged into the release
+branch. That only holds while every `release/**` branch is protected by the
+ruleset.

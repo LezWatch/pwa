@@ -33,11 +33,20 @@ def _time(value):
 
 
 def last_push(activity, head_sha):
-    """When head_sha last landed on the branch, or None if it never did."""
+    """When head_sha landed on the branch, or None if we can't tell.
+
+    Only the newest record counts, and it must be head_sha arriving. If the newest
+    record is anything else (another SHA, a deletion), the branch moved by a route the
+    records don't date, so an older head_sha entry can't be trusted.
+    """
     if not isinstance(activity, list):
         raise TypeError("activity is not a list")
-    times = [_time(a["timestamp"]) for a in activity if a.get("after") == head_sha]
-    return max(times) if times else None
+    if not activity:
+        return None
+    newest = max(activity, key=lambda a: (_time(a["timestamp"]), a.get("id", 0)))
+    if newest.get("after") != head_sha or newest.get("activity_type") == "branch_deletion":
+        return None
+    return _time(newest["timestamp"])
 
 
 def label_events(events):
@@ -59,7 +68,7 @@ def decide(events, activity, head_sha, reviewers_text):
         return {"approved": False, "reason": "HUMAN_REVIEWERS is unset, so nobody can approve."}
     if pushed is None:
         return {"approved": False,
-                "reason": f"Couldn't find when {head_sha[:7]} was pushed to this repo's branch."}
+                "reason": f"Couldn't tell when {head_sha[:7]} was pushed: it isn't the branch's newest recorded push."}
     approval = None
     for index, event in enumerate(ordered):
         actor = event.get("actor") or {}

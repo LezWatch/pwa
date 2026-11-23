@@ -16,14 +16,20 @@ permissions:
   pull-requests: write
   issues: write
 
-# Every run reads the same GitHub records and reaches the same answer, so cancelling an
-# older run never loses an approval.
+# Each run judges the head SHA in its own payload from GitHub's records, so a cancelled
+# run loses nothing but its cosmetic label clean-up.
 concurrency:
   group: risk-tier-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+# `shell: bash` runs with -eo pipefail, so a failed `gh api` in a pipe fails the step
+# instead of handing jq a partial list (missing pages could hide a removed label).
+defaults:
+  run:
+    shell: bash
 
 jobs:
   risk-tier:
@@ -102,7 +108,8 @@ jobs:
           fi
           gh api --paginate "repos/$GH_REPO/issues/$PR/events?per_page=100" --jq '.[]' \
             | jq -s . > "$RUNNER_TEMP/events.json" || echo '"fetch failed"' > "$RUNNER_TEMP/events.json"
-          gh api -X GET "repos/$GH_REPO/activity" -f ref="refs/heads/$HEAD_REF" -F per_page=100 \
+          # Newest first; human_review.py only trusts the newest record.
+          gh api -X GET "repos/$GH_REPO/activity" -f ref="refs/heads/$HEAD_REF" -f direction=desc -F per_page=100 \
             > "$RUNNER_TEMP/activity.json" || echo '"fetch failed"' > "$RUNNER_TEMP/activity.json"
           python3 -I "$GITHUB_WORKSPACE/base/.github/scripts/human_review.py" \
             --events "$RUNNER_TEMP/events.json" --activity "$RUNNER_TEMP/activity.json" \
@@ -119,8 +126,9 @@ jobs:
             echo
             jq -r .reason "$TIER_JSON"
             echo
-            jq -r '.files[] | "- `\(.)`"' "$TIER_JSON"
-            jq -r '.packages[] | "- new package: `\(.)`"' "$TIER_JSON"
+            # Filenames come from the PR: escape them so one can't hide the others.
+            jq -r '.files[] | "- <code>\(@html | gsub("`"; "&#96;"))</code>"' "$TIER_JSON"
+            jq -r '.packages[] | "- new package: <code>\(@html | gsub("`"; "&#96;"))</code>"' "$TIER_JSON"
             if [ "$TIER" = "high" ]; then
               echo
               echo "**Human review:** $(jq -r .reason "$REVIEW_JSON")"

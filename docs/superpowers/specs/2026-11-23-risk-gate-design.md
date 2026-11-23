@@ -168,3 +168,6 @@ or post its own `human-review` status from any workflow it edits. Mika chose the
 - Still open: a PR can add its own job named `risk-tier`, and required checks match by
   name. Closing that needs an org ruleset requiring `risk-tier.yml` from a protected
   ref. The runbook says so.
+- Still open, and bigger: the gate tells people apart by GitHub login. Agents that run
+  under Mika's own login can add the label themselves, and it counts. Closing that
+  means giving agents their own account or App, kept out of `HUMAN_REVIEWERS`.

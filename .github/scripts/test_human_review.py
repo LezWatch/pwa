@@ -72,6 +72,32 @@ class TestDecide(unittest.TestCase):
         ]
         self.assertFalse(_decide(events, activity)["approved"])
 
+    def test_branch_moved_since_its_last_recorded_push_fails_closed(self):
+        # HEAD was pushed and reviewed, but the newest record is a different SHA: the
+        # branch moved by a route we can't date, so the old HEAD entry can't be trusted.
+        events = [_label("labeled", "2026-11-23T10:05:00Z")]
+        activity = [_push(OLD, "2026-11-23T10:06:00Z"), _push(HEAD, "2026-11-23T10:00:00Z")]
+        result = _decide(events, activity)
+        self.assertFalse(result["approved"], result)
+
+    def test_branch_deleted_since_the_push_fails_closed(self):
+        events = [_label("labeled", "2026-11-23T10:05:00Z")]
+        activity = [_push(HEAD, "2026-11-23T10:00:00Z"),
+                    _push("0" * 40, "2026-11-23T10:06:00Z", kind="branch_deletion")]
+        self.assertFalse(_decide(events, activity)["approved"])
+
+    def test_bot_relabel_after_removal_does_not_restore_the_review(self):
+        # A workflow in the PR can re-add the label with its own token after Mika removes it.
+        events = [_label("labeled", "2026-11-23T10:05:00Z"),
+                  _label("unlabeled", "2026-11-23T10:06:00Z"),
+                  _label("labeled", "2026-11-23T10:07:00Z", login="github-actions[bot]", kind="Bot")]
+        self.assertFalse(_decide(events, [_push(HEAD, "2026-11-23T10:00:00Z")])["approved"])
+
+    def test_reviewers_variable_in_mixed_case_matches(self):
+        result = _decide([_label("labeled", "2026-11-23T10:05:00Z", login="ipstenu")],
+                         [_push(HEAD, "2026-11-23T10:00:00Z")], reviewers="Ipstenu")
+        self.assertTrue(result["approved"], result)
+
     def test_branch_creation_counts_as_a_push(self):
         result = _decide([_label("labeled", "2026-11-23T10:05:00Z")],
                          [_push(HEAD, "2026-11-23T10:00:00Z", kind="branch_creation")])
