@@ -1,0 +1,14 @@
+# Throwaway proof: a PR adds its own always-green job named risk-tier. Do not merge.
+name: Copycat
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  risk-tier:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "pretending to be the gate"
