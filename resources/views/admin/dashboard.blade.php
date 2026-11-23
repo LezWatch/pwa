@@ -26,6 +26,9 @@
             <strong>Last failure</strong><br>
             @if ($lastFailure)
                 <time datetime="{{ $lastFailure->started_at->toIso8601String() }}">{{ $lastFailure->started_at->diffForHumans() }}</time>
+                @if ($lastFailure->isStalled())
+                    (stalled)
+                @endif
             @else
                 <span class="muted">None</span>
             @endif
@@ -40,12 +43,12 @@
         @if ($failedOnly)
             <a href="{{ route('admin.dashboard') }}">Show all runs</a>
         @else
-            <a href="{{ route('admin.dashboard', ['failed' => 1]) }}">Show failures only</a>
+            <a href="{{ route('admin.dashboard', ['failed' => 1]) }}">Show failed and stalled only</a>
         @endif
     </div>
 
     @if ($runs->isEmpty())
-        <p class="muted">{{ $failedOnly ? 'No failed syncs.' : 'No syncs recorded yet.' }}</p>
+        <p class="muted">{{ $failedOnly ? 'No failed or stalled syncs.' : 'No syncs recorded yet.' }}</p>
     @else
         <div class="table-wrap">
             <table>

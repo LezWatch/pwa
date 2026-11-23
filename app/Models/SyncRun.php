@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 class SyncRun extends Model
@@ -30,6 +31,16 @@ class SyncRun extends Model
             'updated' => 'integer',
             'removed' => 'integer',
         ];
+    }
+
+    /** Failed runs, plus running ones that have stalled (their process died). */
+    public function scopeFailedOrStalled(Builder $query): Builder
+    {
+        return $query->where(fn (Builder $q) => $q
+            ->where('status', self::STATUS_FAILED)
+            ->orWhere(fn (Builder $q) => $q
+                ->where('status', self::STATUS_RUNNING)
+                ->where('started_at', '<', now()->subMinutes(self::STALLED_AFTER_MINUTES))));
     }
 
     public function isStalled(): bool

@@ -151,4 +151,34 @@ class AdminSyncTest extends TestCase
 
         $this->assertSame(0, SyncRun::count());
     }
+
+    public function test_stalled_run_counts_as_the_last_failure(): void
+    {
+        $this->run_(SyncRun::STATUS_FAILED, ['error' => 'old', 'started_at' => now()->subDays(3)]);
+        $this->run_(SyncRun::STATUS_RUNNING, ['started_at' => now()->subHours(2)]);
+
+        $this->signedInAs()->get($this->adminUrl())
+            ->assertOk()
+            ->assertSeeInOrder(['Last failure', '2 hours ago', '(stalled)', 'Sync now']);
+    }
+
+    public function test_a_run_in_progress_is_not_a_failure(): void
+    {
+        $this->run_(SyncRun::STATUS_RUNNING, ['started_at' => now()->subMinutes(5)]);
+
+        $this->signedInAs()->get($this->adminUrl())
+            ->assertOk()
+            ->assertSeeInOrder(['Last failure', 'None', 'Sync now']);
+    }
+
+    public function test_failed_filter_includes_stalled_runs(): void
+    {
+        $this->run_(SyncRun::STATUS_RUNNING, ['started_at' => now()->subHours(2)]);
+        $this->run_(SyncRun::STATUS_RUNNING, ['started_at' => now()->subMinutes(5)]);
+
+        $this->signedInAs()->get($this->adminUrl().'?failed=1')
+            ->assertOk()
+            ->assertSee('class="badge badge-stalled"', false)
+            ->assertDontSee('class="badge badge-running"', false);
+    }
 }

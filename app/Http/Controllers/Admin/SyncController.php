@@ -20,7 +20,7 @@ class SyncController extends Controller
         $failedOnly = $request->boolean('failed');
 
         $runs = SyncRun::query()
-            ->when($failedOnly, fn ($q) => $q->where('status', SyncRun::STATUS_FAILED))
+            ->when($failedOnly, fn ($q) => $q->failedOrStalled())
             ->orderByDesc('started_at')
             ->orderByDesc('id')
             ->limit(self::PER_PAGE)
@@ -30,7 +30,7 @@ class SyncController extends Controller
             'runs' => $runs,
             'failedOnly' => $failedOnly,
             'lastSuccess' => SyncRun::where('status', SyncRun::STATUS_SUCCEEDED)->latest('started_at')->first(),
-            'lastFailure' => SyncRun::where('status', SyncRun::STATUS_FAILED)->latest('started_at')->first(),
+            'lastFailure' => SyncRun::failedOrStalled()->latest('started_at')->first(),
         ]);
     }
 
