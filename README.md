@@ -48,6 +48,24 @@ mounts the source (including `vendor/`) into the containers.
 live editing and maps `lwtv.local` to your Mac so the containers can reach the
 Local site. It is for local use only.
 
+### npm shortcuts
+
+| Command | Runs | Use it to |
+| --- | --- | --- |
+| `npm run installer` | `npm install && composer install` | Install Node and PHP dependencies. |
+| `npm run build` | `docker compose up -d --build` | Rebuild the images and start the stack. |
+| `npm run start` | `docker compose up -d` | Start the stack without rebuilding. |
+| `npm run stop` | `docker compose down` | Stop the stack and remove its containers. |
+
+`npm run stop` uses `down`, not `down -v`, so the `lwtv-data` volume that holds
+the SQLite database is kept. `down` is used instead of `stop` so the next
+`npm run start` gets fresh containers, with no leftovers from the last run.
+
+These wrap the default compose files, so they include `compose.override.yaml`.
+They are for local use. On a server, use the `-f compose.yaml` commands below.
+
+The old Vite build is now `npm run build:assets`. Nothing uses it yet.
+
 ## Run on a server
 
 No PHP is needed on the host; everything runs in the containers.
