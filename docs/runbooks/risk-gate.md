@@ -39,18 +39,19 @@ front-end JS, images, tests, plain dependency bumps) and none is on the
 high-risk list. The high-risk list always wins, so `tests/TestCase.php` is high
 even though `tests/*` is low.
 
-Both lists are read from the PR's **base** commit, so editing them in a PR
-doesn't change how that PR is judged.
+The gate can't be changed by the PR it judges. `risk-tier.yml` runs on
+`pull_request_target`, so GitHub uses the workflow, the scripts and both lists
+as they are on the **base** branch. The PR's commits are only read as data.
+A change to the gate itself only takes effect after it merges.
 
-> **Known gap: a PR that edits `.github/` can still get around the gate.**
-> `risk-tier.yml` runs on `pull_request`, so GitHub runs the PR's own copy of
-> the workflow and of `risk_tier.py`. A PR could rewrite either to pass, add a
-> job named `risk-tier` that always passes, or post its own `human-review`
-> status from any workflow it edits. Any change to `.github/` is high risk, so
-> read those diffs closely: a PR that touches the gate itself is the one to
-> distrust. Closing this needs a settings change (an org ruleset that requires
-> the gate workflow from a protected ref) or a redesign, and hasn't been done
-> yet. Anyone holding Mika's own GitHub credentials can do anything Mika can.
+> **Remaining gap: a copycat `risk-tier` check.** A PR can add its own
+> workflow with a job named `risk-tier` that always passes. GitHub matches
+> required checks by name, so check how the ruleset treats two checks with the
+> same name (Task 6's proof PRs include this case). That PR touches `.github/`,
+> so the real gate still calls it high. When a PR adds or changes a workflow,
+> read the workflow before merging, even if everything is green. Fully closing
+> this needs an org ruleset that requires `risk-tier.yml` from a protected ref.
+> And anyone holding Mika's own GitHub login can do anything Mika can.
 
 ## 2. Approve a high-risk PR
 
@@ -59,17 +60,23 @@ doesn't change how that PR is judged.
 2. Read the diff. Really read it: that's the whole point.
 3. Add the `human-reviewed` label.
 
-The workflow turns your label into a `human-review` commit status on the PR's
-current head commit, then the gate goes green.
+The gate re-runs and goes green. It doesn't trust the label itself. It reads
+GitHub's own records of **who** added the label and **when**, and of when the
+PR's latest commit was pushed. Your label counts only if you added it after
+that push. A PR can't edit those records.
 
-**A new push starts over.** The status belongs to one commit, so any new commit
-needs a new review. The workflow removes the stale label on each push; add it
-again once you've read the new changes.
+**A new push starts over.** A label from before the latest push doesn't count,
+so any new commit needs a new review. The workflow removes the stale label on
+each push; add it again once you've read the new changes. Removing the label
+withdraws the review.
 
-**Why an agent's label gets removed:** only logins in the `HUMAN_REVIEWERS`
-repository variable count. A label from anyone else, a bot, or an agent using a
-repo token is removed and nothing is recorded. Otherwise an agent could approve
-its own work.
+**Why an agent's label doesn't count:** only logins in the `HUMAN_REVIEWERS`
+repository variable count, and only real user accounts. A label added by anyone
+else, or by a bot or a workflow token, counts for nothing, and the workflow
+removes it. Otherwise an agent could approve its own work.
+
+**PRs from forks** can't be approved by label: their pushes aren't in this
+repo's records. Push the branch to this repo instead.
 
 ## 3. Move a path between lists
 
@@ -84,11 +91,12 @@ extensions (`*.php`), or you'll allow far more than you meant.
 
 Done once, after the gate's own PR merges. Each step changes repo settings.
 
-**Protect `production` only after the gate reaches it.** Until `release/0.0.1`
-merges into `production`, `production` has no `.github/osv-scanner.toml` (the
-OSV PR scan errors on every PR into it, including Dependabot's) and no risk
-lists (PRs into it are judged by their own copies). So the ruleset covers
-`release/**` first, and `production` is added once the gate is on it.
+**Protect `production` only after the gate reaches it.** The gate runs from the
+base branch, so until `release/0.0.1` merges into `production`, PRs into
+`production` get no `risk-tier` check at all. `production` also has no
+`.github/osv-scanner.toml` yet, so the OSV PR scan errors on every PR into it,
+Dependabot's included. So the ruleset covers `release/**` first, and
+`production` is added once the gate is on it.
 
 * Repository variable `HUMAN_REVIEWERS` = `ipstenu` (Settings → Secrets and
   variables → Actions → Variables; comma-separated for more than one).
@@ -103,8 +111,14 @@ lists (PRs into it are judged by their own copies). So the ruleset covers
 
 **`risk-tier` is red and the `human-reviewed` label is on.**
 The label was added before the last push, or by someone not in
-`HUMAN_REVIEWERS`. Remove it and add it again yourself. Check the "Record human
-review" step for an error naming who added it.
+`HUMAN_REVIEWERS`. Remove it and add it again yourself. The job summary's
+**Human review** line says which. It also shows in the "Check for a human
+review" step.
+
+**The reason says "Couldn't find when … was pushed".**
+The gate couldn't find the push in the repository's activity records. That
+happens with a PR from a fork, or if GitHub's API failed. It fails closed. For
+an API failure, re-run the job.
 
 **The label vanished right after I added it.**
 Your login isn't in `HUMAN_REVIEWERS`, or the variable is unset (unset means
@@ -116,5 +130,6 @@ the PR is high. Read the error in the "Classify" step; if the PR is fine, review
 it and add the label as usual.
 
 **I retargeted a PR from `release/*` to `production` and the checks re-ran.**
-That's on purpose. The diff is recomputed against the new base, so a green
-check from the old base can't carry over.
+That's on purpose. The diff is recomputed against the new base. Your review
+still counts if there has been no push since, because it covers the commit you
+read.

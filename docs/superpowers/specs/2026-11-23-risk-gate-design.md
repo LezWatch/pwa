@@ -147,3 +147,24 @@ only offers checks it has seen).
 
 - Exact job layout in `ci.yml`, as long as the check names above match.
 - Which generic tests in `test_risk_tier.py` need new example paths.
+
+## Amendment (2026-11-23, after the final review)
+
+The final review found that the copied gate could be beaten by the PR it judges. The
+workflow ran on `pull_request`, so a PR could rewrite `risk-tier.yml` or `risk_tier.py`,
+or post its own `human-review` status from any workflow it edits. Mika chose the
+`pull_request_target` redesign:
+
+- `risk-tier.yml` runs on `pull_request_target`. GitHub uses the workflow, the scripts
+  and the lists from the base branch. The PR's commits are checked out only as data, and
+  no PR code runs. `risk_tier.py` is unchanged; only the workflow around it differs from
+  lwtv-underscores.
+- The commit status is gone. New `human_review.py` decides from GitHub's own records:
+  the latest `labeled human-reviewed` event by a User in `HUMAN_REVIEWERS` must come
+  after the head SHA's latest push to the branch (from the repository activity API),
+  with no `unlabeled` event after it.
+- The ruleset goes on `release/**` first and on `production` once the gate reaches it.
+  Before then, PRs into `production` get no `risk-tier` check at all.
+- Still open: a PR can add its own job named `risk-tier`, and required checks match by
+  name. Closing that needs an org ruleset requiring `risk-tier.yml` from a protected
+  ref. The runbook says so.

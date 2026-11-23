@@ -1,7 +1,11 @@
 name: Risk tier
 
+# pull_request_target, not pull_request: GitHub runs THIS file and the scripts as they
+# are on the base branch, never the PR's copies, so a PR can't rewrite the gate that
+# judges it. The PR's commits are checked out only as data (git diff/show); no PR code
+# runs here. Keep it that way: never run, source, install or build anything from pr/.
 on:
-  pull_request:
+  pull_request_target:
     branches: [production, 'release/**']
     # `edited` covers a changed base branch: retargeting a PR re-runs the diff against
     # the new base, so a stale green check can't carry over (e.g. into production).
@@ -11,8 +15,9 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
-  statuses: write
 
+# Every run reads the same GitHub records and reaches the same answer, so cancelling an
+# older run never loses an approval.
 concurrency:
   group: risk-tier-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -22,47 +27,48 @@ env:
 
 jobs:
   risk-tier:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       PR: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+      HUMAN_REVIEWERS: ${{ vars.HUMAN_REVIEWERS }}
     steps:
-      # The job runs the PR's risk_tier.py; don't leave a token in .git/config for it.
+      # The gate's own scripts and lists, from the base branch.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          path: base
+          persist-credentials: false
+
+      # The PR's commits, as data only. Full history so the base commit is present too.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
           fetch-depth: 0
           persist-credentials: false
 
-      # The approval is a `human-review` commit status on the head SHA, so a new
-      # commit starts with none. The label is only the UI trigger for recording it.
-      #
-      # Anyone with triage access can add a label, and so can an agent holding a repo
-      # token. Only logins in the HUMAN_REVIEWERS repository variable (comma-separated)
-      # count; anyone else's label is removed and nothing is recorded. Unset = nobody.
-      - name: Record human review
+      # The label is only the way Mika says "I've read this". The gate never trusts the
+      # label itself: it reads who added it, and when, from the issue events (see
+      # human_review.py). These two steps just keep the label honest in the UI. Label
+      # changes made with GITHUB_TOKEN don't trigger workflow runs, so this can't loop.
+      - name: Remove a label added by someone not listed
         if: github.event.action == 'labeled' && github.event.label.name == 'human-reviewed'
         env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REVIEWER: ${{ github.event.sender.login }}
           SENDER_TYPE: ${{ github.event.sender.type }}
-          HUMAN_REVIEWERS: ${{ vars.HUMAN_REVIEWERS }}
         run: |
           if [ "$SENDER_TYPE" != "User" ] || ! printf '%s\n' "$HUMAN_REVIEWERS" | tr ',' '\n' | tr -d ' ' | grep -qixF "$REVIEWER"; then
-            echo "::error::@$REVIEWER isn't in HUMAN_REVIEWERS; removing the human-reviewed label."
-            gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/human-reviewed" || true
-            exit 1
+            echo "::warning::@$REVIEWER isn't in HUMAN_REVIEWERS; removing the human-reviewed label. It doesn't count."
+            gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/human-reviewed" \
+              || echo "::warning::Couldn't remove the human-reviewed label."
           fi
-          gh api -X POST "repos/$GH_REPO/statuses/$HEAD_SHA" \
-            -f state=success \
-            -f context=human-review \
-            -f description="Reviewed by @$REVIEWER"
 
-      # New commits need a fresh look. Label changes made with GITHUB_TOKEN don't
-      # trigger other workflow runs, so this can't loop. The label is cosmetic (the gate
-      # reads the per-SHA status), so a failure here is a warning: Dependabot-triggered
-      # runs get a read-only token and can't edit labels.
-      - name: Reset human review on new commits
+      - name: Remove a stale label on new commits
         if: github.event.action == 'synchronize'
         run: |
           if gh api "repos/$GH_REPO/issues/$PR/labels" --jq '.[].name' | grep -qx 'human-reviewed'; then
@@ -70,26 +76,55 @@ jobs:
               || echo "::warning::Couldn't remove the stale human-reviewed label; remove it by hand."
           fi
 
+      # The base branch's risk_tier.py, run inside pr/ so git sees the PR's commits. The
+      # lists are passed as absolute paths into base/, so they always come from the base
+      # branch; if base has no lists, reading them fails and the PR is high (fail closed).
+      # -I: isolated mode, so nothing in pr/ or the environment can change what Python loads.
       - name: Classify
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
+        working-directory: pr
         run: |
-          python3 .github/scripts/risk_tier.py --base "$BASE" --head "$HEAD" > tier.json
-          cat tier.json
+          python3 -I "$GITHUB_WORKSPACE/base/.github/scripts/risk_tier.py" \
+            --base "$BASE_SHA" --head "$HEAD_SHA" \
+            --patterns "$GITHUB_WORKSPACE/base/.github/risk-tiers.txt" \
+            --low-patterns "$GITHUB_WORKSPACE/base/.github/low-risk.txt" > "$RUNNER_TEMP/tier.json"
+          cat "$RUNNER_TEMP/tier.json"
+
+      # Who added the label and when (issue events), and when the head commit landed on
+      # the branch (repository activity). Both are GitHub's own records; a PR can't write
+      # them. A PR from a fork has no activity here, so it can't be approved by label.
+      - name: Check for a human review
+        run: |
+          echo '{"approved": false, "reason": "not checked"}' > "$RUNNER_TEMP/review.json"
+          if [ "$(jq -r .tier "$RUNNER_TEMP/tier.json")" != "high" ]; then exit 0; fi
+          if [ "$HEAD_REPO" != "$GH_REPO" ]; then
+            echo '{"approved": false, "reason": "PRs from forks cannot be approved by label; push the branch to this repo."}' > "$RUNNER_TEMP/review.json"
+            exit 0
+          fi
+          gh api --paginate "repos/$GH_REPO/issues/$PR/events?per_page=100" --jq '.[]' \
+            | jq -s . > "$RUNNER_TEMP/events.json" || echo '"fetch failed"' > "$RUNNER_TEMP/events.json"
+          gh api -X GET "repos/$GH_REPO/activity" -f ref="refs/heads/$HEAD_REF" -F per_page=100 \
+            > "$RUNNER_TEMP/activity.json" || echo '"fetch failed"' > "$RUNNER_TEMP/activity.json"
+          python3 -I "$GITHUB_WORKSPACE/base/.github/scripts/human_review.py" \
+            --events "$RUNNER_TEMP/events.json" --activity "$RUNNER_TEMP/activity.json" \
+            --head-sha "$HEAD_SHA" --reviewers "$HUMAN_REVIEWERS" > "$RUNNER_TEMP/review.json"
+          cat "$RUNNER_TEMP/review.json"
 
       - name: Label and gate
-        env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          TIER=$(jq -r .tier tier.json)
+          TIER_JSON="$RUNNER_TEMP/tier.json"
+          REVIEW_JSON="$RUNNER_TEMP/review.json"
+          TIER=$(jq -r .tier "$TIER_JSON")
           {
             echo "## Risk tier: $TIER"
             echo
-            jq -r .reason tier.json
+            jq -r .reason "$TIER_JSON"
             echo
-            jq -r '.files[] | "- `\(.)`"' tier.json
-            jq -r '.packages[] | "- new package: `\(.)`"' tier.json
+            jq -r '.files[] | "- `\(.)`"' "$TIER_JSON"
+            jq -r '.packages[] | "- new package: `\(.)`"' "$TIER_JSON"
+            if [ "$TIER" = "high" ]; then
+              echo
+              echo "**Human review:** $(jq -r .reason "$REVIEW_JSON")"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
           LABELS=$(gh api "repos/$GH_REPO/issues/$PR/labels" --jq '.[].name')
@@ -104,13 +139,10 @@ jobs:
 
           gh api -X POST "repos/$GH_REPO/issues/$PR/labels" -f 'labels[]=risk: high' > /dev/null \
             || echo "::warning::Couldn't add the risk: high label."
-          # The decision reads the commit status on this SHA, never the labels.
-          STATE=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/status" \
-            --jq '.statuses[] | select(.context=="human-review") | .state')
-          if [ "$STATE" = "success" ]; then
-            echo "High risk; human-review status present on $HEAD_SHA."
+          if [ "$(jq -r .approved "$REVIEW_JSON")" = "true" ]; then
+            echo "High risk; $(jq -r .reason "$REVIEW_JSON")"
             exit 0
           fi
-          TRIGGERS=$(jq -r '(.files + .packages) | .[:20] | join(", ")' tier.json)
-          echo "::error::High-risk changes need your review: $TRIGGERS. Read them, then add the human-reviewed label."
+          TRIGGERS=$(jq -r '(.files + .packages) | .[:20] | join(", ")' "$TIER_JSON")
+          echo "::error::High-risk changes need your review: $TRIGGERS. Read them, then add the human-reviewed label. ($(jq -r .reason "$REVIEW_JSON"))"
           exit 1
