@@ -1,0 +1,94 @@
+# High-risk paths. A PR touching any of these needs Mika's `human-reviewed` label.
+#
+# Read by .github/scripts/risk_tier.py at the PR's BASE commit, so a PR can't loosen
+# the list it is judged by. Patterns use fnmatch: `*` also crosses `/`, and matching is
+# case-sensitive, hence the [Cc] classes on agent-instruction files.
+#
+# A file on this list is high even if it also matches .github/low-risk.txt.
+# A file on neither list is high too. See low-risk.txt.
+
+# --- CI and this gate -------------------------------------------------------------------
+# Workflows decide what runs with the repo's token; the scripts and lists are the gate.
+.github/*
+.githooks/*
+
+# --- Image, runtime and server ----------------------------------------------------------
+# What the container runs as, what nginx serves, and anything executable.
+Dockerfile
+.dockerignore
+compose*.yaml
+docker/*
+artisan
+*.sh
+public/index.php
+public/.htaccess
+*.htaccess
+
+# --- Boot and config --------------------------------------------------------------------
+# Service providers, middleware stacks, credentials and the asset build.
+bootstrap/*
+config/*
+.env*
+*/.env*
+secrets/*
+vite.config.*
+
+# --- Routes, auth, admin, scheduled jobs ------------------------------------------------
+# Who can reach what, and what runs without anyone asking.
+routes/*
+app/Admin/*
+app/Http/Middleware/*
+app/Providers/*
+app/Console/*
+
+# --- Schema -----------------------------------------------------------------------------
+# Migrations and seeders change or wipe real data.
+database/migrations/*
+database/seeders/*
+
+# --- Test harness -----------------------------------------------------------------------
+# A bad change here once pointed the tests at the live database and wiped it.
+phpunit.xml*
+tests/TestCase.php
+tests/Concerns/*
+
+# --- Service worker and web manifest ----------------------------------------------------
+# Not written yet; listed now so they start high. A service worker can cache or rewrite
+# every page.
+public/sw*.js
+resources/js/sw*
+*.webmanifest
+
+# --- Toolchain --------------------------------------------------------------------------
+# composer.json/package.json and the lockfiles are NOT here: they're on the allowlist,
+# and risk_tier.py itself flags anything beyond a version bump or any new package.
+.npmrc
+*/.npmrc
+.nvmrc
+pint.json
+
+# --- Agent instructions -----------------------------------------------------------------
+# An agent PR that edits its own rules is exactly what this gate is for.
+.claude/*
+*/.claude/*
+.gemini/*
+*/.gemini/*
+.superpowers/*
+*[Cc][Ll][Aa][Uu][Dd][Ee]*.[Mm][Dd]
+*[Aa][Gg][Ee][Nn][Tt][Ss].[Mm][Dd]
+*[Gg][Ee][Mm][Ii][Nn][Ii].[Mm][Dd]
+
+# --- Repo plumbing ----------------------------------------------------------------------
+# What git tracks, ignores or pulls in, and what the secret scan skips.
+.gitignore
+*/.gitignore
+.gitattributes
+*/.gitattributes
+.gitmodules
+# The gitleaks rules live at .github/gitleaks.toml (covered by .github/*). This entry
+# stays so a root copy, which gitleaks would auto-load locally, is still caught.
+.gitleaks.toml
+.gitleaksignore
+
+# --- SVG can carry script ---------------------------------------------------------------
+*.svg

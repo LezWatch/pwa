@@ -252,3 +252,19 @@ docker compose exec app php artisan test
 ```
 
 Tests never call lezwatchtv.com or lwtv.local.
+
+## Pull request checks
+
+Every pull request runs `PHPUnit` (with Pint, lockfile checks and the risk
+gate's own tests), `Docker build`, and `security` (composer and npm audit, plus
+gitleaks over the PR's commits). PRs into `production` or `release/*` also get
+an OSV-Scanner dependency scan.
+
+PRs into `production` or a `release/*` branch also get `risk-tier`. Anything
+risky (CI, Docker, config, routes, auth, migrations, the test harness, most of
+`app/`, or anything not on the low-risk list) stays red until Mika reads it and
+adds the `human-reviewed` label. A new push needs a new review. The gate runs
+from the base branch, so a PR can't change the gate that judges it.
+
+How it works, how to approve a PR, and how to move a path between lists:
+[docs/runbooks/risk-gate.md](docs/runbooks/risk-gate.md).
