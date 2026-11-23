@@ -85,8 +85,8 @@ No PHP is needed on the host; everything runs in the containers.
    docker compose -f compose.yaml run --rm --no-deps app php artisan key:generate --show
    ```
 
-   Without a key, `/` returns a 500 error (it can't encrypt cookies), while
-   `/api/shows` keeps working.
+   The key encrypts the admin's session cookie. The public pages set no
+   cookies, so `/` and `/api/shows` work without it, but the admin won't.
 
 3. Start the stack with only the production file, so the override is skipped:
 
@@ -128,7 +128,11 @@ the admin shows.
 
 ## API
 
-`GET /api/shows` returns the cached catalogue for the PWA. It sets no cookies.
+`GET /api/shows` returns the cached catalogue for the PWA.
+
+No public page sets cookies: `/`, `/api/shows` and `/up` run without a session
+or CSRF token. Only the admin has a session, and its cookie is scoped to the
+admin path. Tests in `tests/Feature/PublicCookiesTest.php` hold this in place.
 
 ```json
 {
