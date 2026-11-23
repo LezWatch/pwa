@@ -88,15 +88,20 @@ LWTV API location:
 Data path:
 
 - A `CatalogueSource` interface with one implementation reading today's
-  lezwatchtv.com REST routes (verify which: `lwtv/v1/export/shows` or `wp/v2`).
-  When #755 ships, add a second implementation and switch.
-- `php artisan lwtv:sync` calls the source, normalises to a small Show shape
-  (id, title, year, slug), stores in SQLite.
+  route, `GET /wp-json/lwtv/v1/list/shows` (Mika's choice: today's routes
+  first). When #755 ships, add a second implementation and switch.
+- That route returns an object keyed by show id:
+  `{"27002": {"title": ".hack//SIGN", "url": "https://.../show/hack-sign/", "onair": "no"}}`.
+  Checked 2026-11-23: 2,295 shows on lezwatchtv.com, 2,266 on lwtv.local, same
+  shape on both. (`export/shows` returns 400 and is not usable.)
+- `php artisan lwtv:sync` calls the source, normalises each entry to a small
+  Show shape (`id`, `title`, `slug` taken from the URL path, `url`,
+  `on_air` boolean from `"yes"`/`"no"`), and upserts into SQLite. Shows that
+  disappear from the feed are removed.
 - Scheduled every few hours.
 
 ## Left to the builder
 
 - Exact Laravel and nginx image tags.
-- Which existing LWTV route to read, and the fallback to a checked-in fixture
-  if it is unsuitable.
+- A small checked-in fixture of the `list/shows` response for tests.
 - Sync frequency and HTTP timeout/retry details.
