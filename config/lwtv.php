@@ -1,5 +1,7 @@
 <?php
 
+// Throwaway: proves the risk gate holds a high-risk change. Do not merge.
+
 return [
 
     /*
