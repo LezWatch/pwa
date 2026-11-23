@@ -9,45 +9,41 @@ use Illuminate\Support\Facades\Http;
 use Throwable;
 
 /**
- * Asks the Cloud Identity Groups API, as a service account that holds the
- * Groups Reader admin role. No domain-wide delegation.
+ * Asks the Admin SDK Directory API (members.hasMember), as a service account
+ * that holds the Groups Reader admin role. No domain-wide delegation.
+ *
+ * hasMember follows nested groups within the domain and works on every
+ * Workspace edition; Cloud Identity's checkTransitiveMembership needs an
+ * Enterprise or Cloud Identity Premium edition.
  */
 class GoogleGroupMembership implements GroupMembership
 {
-    private const API = 'https://cloudidentity.googleapis.com/v1';
+    private const API = 'https://admin.googleapis.com/admin/directory/v1';
 
-    private const SCOPE = 'https://www.googleapis.com/auth/cloud-identity.groups.readonly';
+    private const SCOPE = 'https://www.googleapis.com/auth/admin.directory.group.member.readonly';
 
     public function __construct(private string $group, private ?string $keyPath) {}
 
     public function isMember(string $email): bool
     {
+        $url = sprintf('%s/groups/%s/hasMember/%s', self::API, rawurlencode($this->group), rawurlencode($email));
+
         try {
-            $client = Http::withToken($this->accessToken())->timeout(10)->acceptJson();
-
-            $groupName = $client->get(self::API.'/groups:lookup', ['groupKey.id' => $this->group])
-                ->throw()->json('name');
-
-            if (! is_string($groupName) || ! str_starts_with($groupName, 'groups/')) {
-                throw new GroupCheckFailed('Group lookup returned no group name.');
-            }
-
-            $quoted = "'".addcslashes($email, "'\\")."'";
-            $hasMembership = $client->get(
-                self::API."/{$groupName}/memberships:checkTransitiveMembership",
-                ['query' => "member_key_id=={$quoted}"],
-            )->throw()->json('hasMembership');
-        } catch (GroupCheckFailed $e) {
-            throw $e;
+            $isMember = Http::withToken($this->accessToken())
+                ->timeout(10)
+                ->acceptJson()
+                ->get($url)
+                ->throw()
+                ->json('isMember');
         } catch (RequestException|ConnectionException $e) {
             throw new GroupCheckFailed('Google group check failed: '.$e->getMessage(), previous: $e);
         }
 
-        if (! is_bool($hasMembership)) {
+        if (! is_bool($isMember)) {
             throw new GroupCheckFailed('Membership check returned no answer.');
         }
 
-        return $hasMembership;
+        return $isMember;
     }
 
     protected function accessToken(): string

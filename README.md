@@ -163,7 +163,8 @@ sign-in plus the group check is.
 You need a Google Workspace super admin for step 4.
 
 1. In Google Cloud, create or pick a project and enable the
-   **Cloud Identity API**.
+   **Admin SDK API**. The app uses its Directory API `members.hasMember`
+   check, which follows nested groups and works on every Workspace edition.
 2. Set up the OAuth consent screen as **Internal**, then create an
    **OAuth client ID** (type: web application). Add this authorized redirect
    URI, once for each place the app runs:
@@ -177,7 +178,11 @@ You need a Google Workspace super admin for step 4.
 3. Create a **service account** with no project roles, and download a JSON key
    for it. Save it as `secrets/google-service-account.json` next to
    `compose.yaml`. The `secrets/` folder is gitignored, kept out of the image,
-   and mounted read-only at `/run/secrets`.
+   and mounted read-only at `/run/secrets`. The PHP-FPM workers run as
+   `www-data`, so the file must be readable by that user. On the server,
+   `chmod 644 secrets/google-service-account.json` (keep the folder itself
+   readable only by people who should see it). If the key can't be read,
+   nobody can sign in, and the log says why.
 4. In the Google Admin console, go to **Account > Admin roles > Groups Reader >
    Admins assigned**, and assign the role to the service account's email. That
    lets it read group membership. It needs no domain-wide delegation.
@@ -192,6 +197,8 @@ You need a Google Workspace super admin for step 4.
 
    `ADMIN_GROUP` and `GOOGLE_WORKSPACE_DOMAIN` default to
    `pwa-admins@lezwatchtv.com` and `lezwatchtv.com`.
+   The Google return address is built from `APP_URL`, so `APP_URL` must be
+   the public `https://` address. The admin cookie is marked Secure when it is.
 6. Restart the app container. In production, routes and config are cached on
    start, so changing `ADMIN_PATH` always needs a restart.
 

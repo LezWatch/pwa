@@ -25,13 +25,15 @@ class UseAdminSession
             'expire_on_close' => false,
             'http_only' => true,
             'same_site' => 'lax',
+            // TLS ends at the host nginx, so the request can't tell us; APP_URL can.
+            'secure' => ($previous['secure'] ?? null) ?? str_starts_with((string) config('app.url'), 'https://'),
         ]));
 
         try {
             return $next($request);
         } finally {
-            // Long-lived workers (and tests) reuse these between requests;
-            // put them back so public pages get the defaults.
+            // Tests reuse the app between requests; put these back so public
+            // pages get the defaults. (Under php-fpm each request starts fresh.)
             $this->apply($previous);
         }
     }

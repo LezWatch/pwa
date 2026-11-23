@@ -248,4 +248,23 @@ class AdminAccessTest extends TestCase
             $this->assertSame('/secret-door', $cookie->getPath(), "{$cookie->getName()} escaped the admin path.");
         }
     }
+
+    public function test_callback_url_comes_from_app_url_not_the_request(): void
+    {
+        // Behind the host nginx the request arrives as plain http on 127.0.0.1.
+        config(['app.url' => 'https://pwa.lezwatchtv.com']);
+
+        $this->get('http://127.0.0.1:8069/secret-door/login/google')
+            ->assertRedirectContains('redirect_uri='.urlencode('https://pwa.lezwatchtv.com/secret-door/callback'));
+    }
+
+    public function test_admin_cookie_is_secure_when_app_url_is_https(): void
+    {
+        config(['app.url' => 'https://pwa.lezwatchtv.com']);
+
+        $cookie = collect($this->get($this->adminUrl('login'))->headers->getCookies())
+            ->firstWhere(fn ($c) => $c->getName() === 'lwtv-admin');
+
+        $this->assertTrue($cookie->isSecure());
+    }
 }

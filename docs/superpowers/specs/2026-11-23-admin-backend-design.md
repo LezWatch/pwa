@@ -152,6 +152,18 @@ The Google group check sits behind an interface so tests swap in a fake.
 - **Design tokens.** `docs/design/system/` is on `release/0.0.1` but not on
   the PR #20 branch; this branch merges `release/0.0.1` in (it merges cleanly).
 
+## Changed during the final review
+
+- **Directory API instead of Cloud Identity.** Cloud Identity's
+  `checkTransitiveMembership` only works on Workspace Enterprise editions or
+  Cloud Identity Premium, and returns 403 everywhere else. The check now uses
+  the Admin SDK Directory API `members.hasMember`, which follows nested groups
+  within the domain and has no edition limit. Same service account, same
+  Groups Reader role, still no domain-wide delegation.
+- **Callback URL from `APP_URL`.** TLS ends at the host nginx, so the request
+  looks like plain http; the Google callback and the cookie's Secure flag come
+  from `APP_URL` instead.
+
 ## Left to the builder
 
 - Which Google library to use for the service-account token (prefer

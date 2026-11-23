@@ -91,6 +91,10 @@ class AuthController extends Controller
     private function google(): GoogleProvider
     {
         /** @var GoogleProvider */
-        return Socialite::driver('google')->redirectUrl(route('admin.callback'));
+        // Built from APP_URL, not the request: behind the host nginx the app
+        // sees plain http, and Google must get the registered https address.
+        $callback = rtrim((string) config('app.url'), '/').'/'.config('admin.path').'/callback';
+
+        return Socialite::driver('google')->redirectUrl($callback);
     }
 }
