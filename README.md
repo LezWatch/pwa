@@ -162,6 +162,10 @@ sign-in plus the group check is.
 
 You need a Google Workspace super admin for step 4.
 
+For the click-by-click version, plus a local test, adding and removing admins,
+rotating secrets, and troubleshooting, use the runbook:
+[docs/runbooks/google-sign-in.md](docs/runbooks/google-sign-in.md).
+
 1. In Google Cloud, create or pick a project and enable the
    **Admin SDK API**. The app uses its Directory API `members.hasMember`
    check, which follows nested groups and works on every Workspace edition.
@@ -212,10 +216,8 @@ You need a Google Workspace super admin for step 4.
   next recheck.
 - If Google can't be reached or answers with an error, access is refused, and
   someone already signed in is signed out.
-- If every sign-in says "We could not check your access" and the log shows a
-  403 from `admin.googleapis.com`, the service account's role doesn't cover
-  Directory API reads. Check that the Admin SDK API is enabled. If it is, assign
-  the **Groups Admin** role instead of Groups Reader (it can also edit groups).
+- Sign-in not working? See
+  [Troubleshooting in the runbook](docs/runbooks/google-sign-in.md#5-troubleshooting-by-symptom).
 
 ## Point at production
 
