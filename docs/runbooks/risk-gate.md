@@ -8,10 +8,11 @@ it, without having to think too hard.
 **Jump to:**
 
 * [High and low](#1-high-and-low) ·
-* [Approve a high-risk PR](#2-approve-a-high-risk-pr) ·
-* [Move a path between lists](#3-move-a-path-between-lists) ·
-* [One-time setup](#4-one-time-setup) ·
-* [Troubleshooting](#5-troubleshooting-by-symptom)
+* [How the gate works](#2-how-the-gate-works) ·
+* [Approve a high-risk PR](#3-approve-a-high-risk-pr) ·
+* [Move a path between lists](#4-move-a-path-between-lists) ·
+* [One-time setup](#5-one-time-setup) ·
+* [Troubleshooting](#6-troubleshooting-by-symptom)
 
 ---
 
@@ -39,18 +40,26 @@ front-end JS, images, tests, plain dependency bumps) and none is on the
 high-risk list. The high-risk list always wins, so `tests/TestCase.php` is high
 even though `tests/*` is low.
 
-The gate can't be changed by the PR it judges. `risk-tier.yml` runs on
-`pull_request_target`, so GitHub uses the workflow, the scripts and both lists
-as they are on the **base** branch. The PR's commits are only read as data.
-A change to the gate itself only takes effect after it merges.
+## 2. How the gate works
 
-> **Remaining gap: a copycat `risk-tier` check.** A PR can add its own
-> workflow with a job named `risk-tier` that always passes. GitHub matches
-> required checks by name, so check how the ruleset treats two checks with the
-> same name (Task 6's proof PRs include this case). That PR touches `.github/`,
-> so the real gate still calls it high. When a PR adds or changes a workflow,
-> read the workflow before merging, even if everything is green. Fully closing
-> this needs an org ruleset that requires `risk-tier.yml` from a protected ref.
+Two workflows:
+
+* **`risk-tier-trigger.yml`** runs on the PR (`pull_request`) and does
+  nothing. Its job is to finish, which starts the real gate.
+* **`risk-tier.yml`** runs on `workflow_run`. GitHub always runs that file, and
+  the gate checks out its scripts and both lists, from the **default branch**
+  (`production`), never from the PR. The PR's commits are only read as data. A
+  change to the gate only takes effect once it reaches `production`.
+
+The verdict is a `risk-tier` **commit status** on the PR's head commit, posted
+as the **risk-gate GitHub App**. The ruleset requires `risk-tier` *from that
+App only*. A PR could add its own job or status called `risk-tier`, but it
+would come from GitHub Actions, not the App, so it doesn't count. The App's key
+is stored in the `risk-gate` environment, which only `production` can use, so
+a workflow in a PR can't reach it.
+
+If anything goes wrong (the trigger is deleted, the gate errors, the App token
+fails), there's no `success` status from the App, so the PR stays blocked.
 
 > **Biggest gap: agents that use Mika's login.** The gate tells people apart by
 > GitHub login. An agent working under Mika's own account (her `gh` login, a
@@ -60,79 +69,110 @@ A change to the gate itself only takes effect after it merges.
 > agents**. To close it, give agents their own GitHub account or App, never
 > list it in `HUMAN_REVIEWERS`, and keep its rights below admin.
 
-## 2. Approve a high-risk PR
+## 3. Approve a high-risk PR
 
-1. Open the PR. The `risk-tier` job summary lists the files and packages that
-   made it high.
+1. Open the PR. Follow the `risk-tier` status's **Details** link: the run's
+   summary lists the files and packages that made it high.
 2. Read the diff. Really read it: that's the whole point.
 3. Add the `human-reviewed` label.
 
-The gate re-runs and goes green. It doesn't trust the label itself. It reads
-GitHub's own records of **who** added the label and **when**, and of when the
-PR's latest commit was pushed. Your label counts only if you added it after
-that push. A PR can't edit those records.
+The gate re-runs (give it a minute) and goes green. It doesn't trust the label
+itself. It reads GitHub's own records of **who** added the label and **when**,
+and of when the PR's latest commit was pushed. Your label counts only if you
+added it after that push. A PR can't edit those records.
 
 **A new push starts over.** A label from before the latest push doesn't count,
-so any new commit needs a new review. The workflow removes the stale label on
-each push; add it again once you've read the new changes. Removing the label
-withdraws the review.
+so any new commit needs a new review. The gate takes the stale label off; add
+it again once you've read the new changes. Removing the label withdraws the
+review.
 
 **Whose label counts:** only logins in the `HUMAN_REVIEWERS` repository
-variable, and only real user accounts. A label added by anyone else counts for
-nothing; if a person added it, the workflow removes it. A label added by a
-workflow token doesn't trigger the gate, so it stays visible on the PR, but it
-still counts for nothing. An agent using Mika's own login is the exception: see
-the biggest gap above.
+variable, and only real user accounts. A label added by anyone else, a bot or a
+workflow token counts for nothing, and the gate takes it off the next time it
+runs. An agent using Mika's own login is the exception: see the biggest gap
+above.
 
-**PRs from forks** can't be approved by label: their pushes aren't in this
-repo's records. Push the branch to this repo instead.
+**PRs from forks** get no `risk-tier` status at all, so they stay blocked.
+Push the branch to this repo instead.
 
-## 3. Move a path between lists
+## 4. Move a path between lists
 
 Edit `.github/risk-tiers.txt` or `.github/low-risk.txt` in **its own PR**. That
-PR touches `.github/`, so it's high risk and needs your review, and the new
-lists only take effect after it merges (they're read from the base).
+PR touches `.github/`, so it's high risk and needs your review. The gate reads
+the lists from `production`, so the change takes effect once it reaches
+`production`, not when it merges into a release branch.
 
 Patterns use fnmatch: `*` also crosses `/`. List folders (`app/Models/*`), never
 extensions (`*.php`), or you'll allow far more than you meant.
 
-## 4. One-time setup
+## 5. One-time setup
 
-Done once, after the gate's own PR merges. Each step changes repo settings.
+Each step changes repo or org settings.
 
-**Protect `production` only after the gate reaches it.** The gate runs from the
-base branch, so until `release/0.0.1` merges into `production`, PRs into
-`production` get no `risk-tier` check at all. `production` also has no
-`.github/osv-scanner.toml` yet, so the OSV PR scan errors on every PR into it,
-Dependabot's included. So the ruleset covers `release/**` first, and
-`production` is added once the gate is on it.
+**The gate only runs once it's on `production`.** Until `release/0.0.1` merges
+into `production`, no PR gets a `risk-tier` status. `production` also has no
+`.github/osv-scanner.toml` until then, so the OSV PR scan errors on every PR
+into it, Dependabot's included.
 
-* Repository variable `HUMAN_REVIEWERS` = `ipstenu` (Settings → Secrets and
-  variables → Actions → Variables; comma-separated for more than one).
-* Labels `human-reviewed` and `risk: high`.
-* One ruleset on `release/**` (then `production`, see above): no deletion, no force-push,
-  changes through a PR (merge commit only), and required checks `PHPUnit`,
-  `Docker build`, `security`, `risk-tier`, `scan-pr / osv-scan`. No bypass
-  actors. GitHub only offers checks it has already seen run, so add the ruleset
-  after the workflows have reported at least once.
+1. **Repository variable** `HUMAN_REVIEWERS` = `ipstenu` (Settings → Secrets
+   and variables → Actions → Variables; comma-separated for more than one).
+2. **Labels** `human-reviewed` and `risk: high`.
+3. **The GitHub App.** In the LezWatch org: Settings → Developer settings →
+   GitHub Apps → New GitHub App.
+   * Name: `LezWatch risk gate` (any name). Homepage: the repo URL.
+   * Webhook: untick **Active**.
+   * Repository permissions: **Commit statuses: Read and write**. Nothing else
+     (Metadata: read is added automatically).
+   * Where can it be installed: **Only on this account**.
+   * Create it. Note the **App ID** (a number) and the **Client ID**.
+   * Generate a private key (it downloads a `.pem`). Save it in 1Password as
+     LWTV PWA risk gate App key.
+   * Install App → LezWatch → **Only select repositories** → `pwa`.
+4. **The environment.** Repo Settings → Environments → New environment →
+   `risk-gate`.
+   * Deployment branches and tags: **Selected branches and tags** → add
+     `production`. Nothing else.
+   * Environment variable `RISK_GATE_APP_CLIENT_ID` = the Client ID.
+   * Environment secret `RISK_GATE_APP_PRIVATE_KEY` = the whole `.pem` file.
+   * Then delete the downloaded `.pem`.
+5. **Merge `release/0.0.1` into `production`**, so the gate is on the default
+   branch.
+6. **The ruleset**, on `release/**` and `production`: no deletion, no
+   force-push, changes through a PR (merge commit only), and required checks
+   `PHPUnit`, `Docker build`, `security`, `scan-pr / osv-scan`, plus
+   `risk-tier` **from the risk-gate App** (in the UI, pick the App as the
+   source; in the API, `integration_id` = the App ID). No bypass actors.
 
-## 5. Troubleshooting by symptom
+## 6. Troubleshooting by symptom
+
+**`risk-tier` says "Expected — Waiting for status to be reported".**
+The gate hasn't posted anything for this commit yet. Give it a minute after a
+push or a label change. If it stays:
+* Is the gate on `production`? It only runs from there.
+* Did "Risk tier trigger" run on the PR? If the PR deleted or broke
+  `risk-tier-trigger.yml`, the gate never starts. That's a red flag in itself.
+* Did "Risk tier" run (Actions tab, on `production`)? If it ran but posted
+  nothing, its log says why: PR from a fork, PR not into a gated branch, or the
+  App token failed (check the environment's variable and secret).
 
 **`risk-tier` is red and the `human-reviewed` label is on.**
-The label was added before the last push, or by someone not in
-`HUMAN_REVIEWERS`. Remove it and add it again yourself. The job summary's
-**Human review** line says which. It also shows in the "Check for a human
-review" step.
+The gate hasn't re-run since your label, or it ran and the label didn't count.
+The status description and the run summary's **Human review** line say which.
 
 **The reason says "Couldn't tell when … was pushed".**
 The newest push in the repository's activity records for the PR's branch isn't
-the PR's head commit. That happens with a PR from a fork, if the branch moved
-by some route GitHub doesn't log as a push, or if the API failed. It fails
-closed. Re-run the job; if it's still red, push a new commit and review that.
+the PR's head commit. That happens if the branch moved by some route GitHub
+doesn't log as a push, or if the API failed. It fails closed. Re-run the gate;
+if it's still red, push a new commit and review that.
 
 **The label vanished right after I added it.**
 Your login isn't in `HUMAN_REVIEWERS`, or the variable is unset (unset means
-nobody counts). Fix the variable, then add the label again.
+nobody counts), or there was a push just before your label. Fix the variable if
+needed, then add the label again.
+
+**`risk-tier` shows "error: The risk tier gate failed".**
+Something in the gate broke after it started. Open the run from the status's
+Details link. It fails closed; re-run it once the cause is fixed.
 
 **The reason says "risk check failed, treating as high risk".**
 The script hit an error (bad lockfile JSON, a git problem). It fails closed, so

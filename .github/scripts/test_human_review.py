@@ -161,6 +161,43 @@ class TestDecide(unittest.TestCase):
         self.assertTrue(result["approved"], result)
 
 
+class TestRemoveLabel(unittest.TestCase):
+    """remove_label: the label is on the PR but doesn't count, so the gate takes it off.
+
+    Otherwise, after a new push, Mika would have to remove the label before she could
+    add it again.
+    """
+
+    def test_stale_label_from_before_the_push_is_removed(self):
+        result = _decide([_label("labeled", "2026-11-23T09:59:00Z")], [_push(HEAD, "2026-11-23T10:00:00Z")])
+        self.assertFalse(result["approved"])
+        self.assertTrue(result["remove_label"], result)
+
+    def test_label_from_someone_not_listed_is_removed(self):
+        result = _decide([_label("labeled", "2026-11-23T10:05:00Z", login="github-actions[bot]", kind="Bot")],
+                         [_push(HEAD, "2026-11-23T10:00:00Z")])
+        self.assertTrue(result["remove_label"], result)
+
+    def test_counting_label_is_kept(self):
+        result = _decide([_label("labeled", "2026-11-23T10:05:00Z")], [_push(HEAD, "2026-11-23T10:00:00Z")])
+        self.assertTrue(result["approved"])
+        self.assertFalse(result["remove_label"])
+
+    def test_label_already_removed_needs_no_removal(self):
+        events = [_label("labeled", "2026-11-23T09:59:00Z"), _label("unlabeled", "2026-11-23T10:01:00Z")]
+        self.assertFalse(_decide(events, [_push(HEAD, "2026-11-23T10:00:00Z")])["remove_label"])
+
+    def test_no_removal_when_the_push_time_is_unknown(self):
+        # Can't tell whether Mika's label is stale; leave it alone.
+        result = _decide([_label("labeled", "2026-11-23T10:05:00Z")], [_push(OLD, "2026-11-23T10:00:00Z")])
+        self.assertFalse(result["remove_label"])
+
+    def test_no_removal_when_reviewers_are_unset(self):
+        result = _decide([_label("labeled", "2026-11-23T10:05:00Z")], [_push(HEAD, "2026-11-23T10:00:00Z")],
+                         reviewers="")
+        self.assertFalse(result["remove_label"])
+
+
 class TestMain(unittest.TestCase):
     def _run(self, events, activity, extra=()):
         with tempfile.TemporaryDirectory() as tmp:
@@ -187,6 +224,7 @@ class TestMain(unittest.TestCase):
                 self.assertEqual(code, 0)
                 self.assertFalse(result["approved"])
                 self.assertIn("treating as not reviewed", result["reason"])
+                self.assertFalse(result["remove_label"])
 
 
 if __name__ == "__main__":

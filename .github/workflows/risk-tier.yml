@@ -1,25 +1,28 @@
 name: Risk tier
 
-# pull_request_target, not pull_request: GitHub runs THIS file and the scripts as they
-# are on the base branch, never the PR's copies, so a PR can't rewrite the gate that
-# judges it. The PR's commits are checked out only as data (git diff/show); no PR code
-# runs here. Keep it that way: never run, source, install or build anything from pr/.
+# The gate. workflow_run always runs THIS file, and checks out the scripts and lists, as
+# they are on the DEFAULT branch (production), never a PR's copies, so a PR can't rewrite
+# the gate that judges it. The PR's commits are checked out only as data (git diff/show);
+# no PR code runs here. Keep it that way: never run, source, install or build from pr/.
+#
+# The verdict is a `risk-tier` commit status on the PR's head commit, posted as the
+# risk-gate GitHub App. The ruleset requires `risk-tier` from that App only, so a job or
+# status named risk-tier from anything else (say, a workflow the PR adds) doesn't count.
+# The App's key is in the `risk-gate` environment, which only production can use.
 on:
-  pull_request_target:
-    branches: [production, 'release/**']
-    # `edited` covers a changed base branch: retargeting a PR re-runs the diff against
-    # the new base, so a stale green check can't carry over (e.g. into production).
-    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+  workflow_run:
+    workflows: [Risk tier trigger]
+    types: [completed]
 
 permissions:
   contents: read
   pull-requests: write
   issues: write
 
-# Each run judges the head SHA in its own payload from GitHub's records, so a cancelled
-# run loses nothing but its cosmetic label clean-up.
+# Each run judges the PR's current head from GitHub's records, so cancelling an older run
+# loses nothing.
 concurrency:
-  group: risk-tier-${{ github.event.pull_request.number }}
+  group: risk-tier-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: true
 
 env:
@@ -32,63 +35,100 @@ defaults:
     shell: bash
 
 jobs:
-  risk-tier:
+  gate:
+    # Not named risk-tier: this job's own check run lands on production's commit, not
+    # the PR's. The required check is the App's commit status.
+    name: Risk tier gate
+    if: github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-24.04
+    environment: risk-gate
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      PR: ${{ github.event.pull_request.number }}
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      HEAD_REF: ${{ github.event.pull_request.head.ref }}
-      HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
       HUMAN_REVIEWERS: ${{ vars.HUMAN_REVIEWERS }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      PULLS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
     steps:
-      # The gate's own scripts and lists, from the base branch.
+      # The run's payload names the PR; everything else is read fresh from the API, so a
+      # late run judges the PR's current head, not the commit that triggered it. Forks
+      # aren't listed in the payload, so their PRs get no status and stay blocked.
+      - name: Find the pull request
+        id: pr
+        run: |
+          COUNT=$(jq 'length' <<< "$PULLS")
+          if [ "$COUNT" -ne 1 ]; then
+            echo "::warning::This run lists $COUNT pull requests; the gate handles exactly one. No status posted."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          NUMBER=$(jq -r '.[0].number' <<< "$PULLS")
+          gh api "repos/$GH_REPO/pulls/$NUMBER" > "$RUNNER_TEMP/pr.json"
+          jq -e --arg repo "$GH_REPO" '
+            .state == "open"
+            and .head.repo.full_name == $repo
+            and (.base.ref == "production" or (.base.ref | startswith("release/")))
+            and (.head.sha | test("^[0-9a-f]{40}$"))
+            and (.base.sha | test("^[0-9a-f]{40}$"))' "$RUNNER_TEMP/pr.json" > /dev/null || {
+            echo "::warning::PR #$NUMBER is closed, from a fork, or not into a gated branch. No status posted."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          {
+            echo "found=true"
+            echo "number=$NUMBER"
+            echo "head_sha=$(jq -r .head.sha "$RUNNER_TEMP/pr.json")"
+          } >> "$GITHUB_OUTPUT"
+
+      # The only credential that can post the status the ruleset counts. Used for nothing
+      # else.
+      - name: Token for the risk-gate App
+        id: app
+        if: steps.pr.outputs.found == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RISK_GATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RISK_GATE_APP_PRIVATE_KEY }}
+          permission-statuses: write
+
+      # Pending first, so a run that dies halfway can't leave an older success standing
+      # on this commit (say, after Mika removed her label to withdraw a review).
+      - name: Mark pending
+        if: steps.pr.outputs.found == 'true'
+        env:
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        run: |
+          GH_TOKEN="$APP_TOKEN" gh api -X POST "repos/$GH_REPO/statuses/$HEAD_SHA" \
+            -f state=pending -f context=risk-tier -f description="Checking risk tier" \
+            -f target_url="$RUN_URL" > /dev/null
+
+      # The gate's own scripts and lists, from the default branch.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.pr.outputs.found == 'true'
         with:
           path: base
           persist-credentials: false
 
       # The PR's commits, as data only. Full history so the base commit is present too.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.pr.outputs.found == 'true'
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ steps.pr.outputs.head_sha }}
           path: pr
           fetch-depth: 0
           persist-credentials: false
 
-      # The label is only the way Mika says "I've read this". The gate never trusts the
-      # label itself: it reads who added it, and when, from the issue events (see
-      # human_review.py). These two steps just keep the label honest in the UI. Label
-      # changes made with GITHUB_TOKEN don't trigger workflow runs, so this can't loop.
-      - name: Remove a label added by someone not listed
-        if: github.event.action == 'labeled' && github.event.label.name == 'human-reviewed'
-        env:
-          REVIEWER: ${{ github.event.sender.login }}
-          SENDER_TYPE: ${{ github.event.sender.type }}
-        run: |
-          if [ "$SENDER_TYPE" != "User" ] || ! printf '%s\n' "$HUMAN_REVIEWERS" | tr ',' '\n' | tr -d ' ' | grep -qixF "$REVIEWER"; then
-            echo "::warning::@$REVIEWER isn't in HUMAN_REVIEWERS; removing the human-reviewed label. It doesn't count."
-            gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/human-reviewed" \
-              || echo "::warning::Couldn't remove the human-reviewed label."
-          fi
-
-      - name: Remove a stale label on new commits
-        if: github.event.action == 'synchronize'
-        run: |
-          if gh api "repos/$GH_REPO/issues/$PR/labels" --jq '.[].name' | grep -qx 'human-reviewed'; then
-            gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/human-reviewed" \
-              || echo "::warning::Couldn't remove the stale human-reviewed label; remove it by hand."
-          fi
-
-      # The base branch's risk_tier.py, run inside pr/ so git sees the PR's commits. The
-      # lists are passed as absolute paths into base/, so they always come from the base
-      # branch; if base has no lists, reading them fails and the PR is high (fail closed).
-      # -I: isolated mode, so nothing in pr/ or the environment can change what Python loads.
+      # The default branch's risk_tier.py, run inside pr/ so git sees the PR's commits.
+      # The lists are passed as absolute paths into base/, so they always come from the
+      # default branch; if it has no lists, reading them fails and the PR is high.
+      # -I: isolated mode, so nothing in pr/ or the environment changes what Python loads.
       - name: Classify
+        if: steps.pr.outputs.found == 'true'
         working-directory: pr
+        env:
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
+          BASE_SHA=$(jq -r .base.sha "$RUNNER_TEMP/pr.json")
           python3 -I "$GITHUB_WORKSPACE/base/.github/scripts/risk_tier.py" \
             --base "$BASE_SHA" --head "$HEAD_SHA" \
             --patterns "$GITHUB_WORKSPACE/base/.github/risk-tiers.txt" \
@@ -97,15 +137,16 @@ jobs:
 
       # Who added the label and when (issue events), and when the head commit landed on
       # the branch (repository activity). Both are GitHub's own records; a PR can't write
-      # them. A PR from a fork has no activity here, so it can't be approved by label.
+      # them.
       - name: Check for a human review
+        if: steps.pr.outputs.found == 'true'
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
-          echo '{"approved": false, "reason": "not checked"}' > "$RUNNER_TEMP/review.json"
+          echo '{"approved": false, "remove_label": false, "reason": "not checked"}' > "$RUNNER_TEMP/review.json"
           if [ "$(jq -r .tier "$RUNNER_TEMP/tier.json")" != "high" ]; then exit 0; fi
-          if [ "$HEAD_REPO" != "$GH_REPO" ]; then
-            echo '{"approved": false, "reason": "PRs from forks cannot be approved by label; push the branch to this repo."}' > "$RUNNER_TEMP/review.json"
-            exit 0
-          fi
+          HEAD_REF=$(jq -r .head.ref "$RUNNER_TEMP/pr.json")
           gh api --paginate "repos/$GH_REPO/issues/$PR/events?per_page=100" --jq '.[]' \
             | jq -s . > "$RUNNER_TEMP/events.json" || echo '"fetch failed"' > "$RUNNER_TEMP/events.json"
           # Newest first; human_review.py only trusts the newest record.
@@ -116,13 +157,18 @@ jobs:
             --head-sha "$HEAD_SHA" --reviewers "$HUMAN_REVIEWERS" > "$RUNNER_TEMP/review.json"
           cat "$RUNNER_TEMP/review.json"
 
-      - name: Label and gate
+      # Labels are only the UI. Changes made with GITHUB_TOKEN don't trigger workflows,
+      # so none of this can loop.
+      - name: Labels and summary
+        if: steps.pr.outputs.found == 'true'
+        env:
+          PR: ${{ steps.pr.outputs.number }}
         run: |
           TIER_JSON="$RUNNER_TEMP/tier.json"
           REVIEW_JSON="$RUNNER_TEMP/review.json"
           TIER=$(jq -r .tier "$TIER_JSON")
           {
-            echo "## Risk tier: $TIER"
+            echo "## Risk tier: $TIER (PR #$PR)"
             echo
             jq -r .reason "$TIER_JSON"
             echo
@@ -136,21 +182,48 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           LABELS=$(gh api "repos/$GH_REPO/issues/$PR/labels" --jq '.[].name')
+          if [ "$TIER" = "high" ]; then
+            gh api -X POST "repos/$GH_REPO/issues/$PR/labels" -f 'labels[]=risk: high' > /dev/null \
+              || echo "::warning::Couldn't add the risk: high label."
+          elif printf '%s\n' "$LABELS" | grep -qx 'risk: high'; then
+            gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/risk%3A%20high" > /dev/null \
+              || echo "::warning::Couldn't remove the risk: high label."
+          fi
+          # A label that's on but doesn't count (stale, or not from a listed reviewer)
+          # comes off, so Mika can simply add it again.
+          if [ "$(jq -r .remove_label "$REVIEW_JSON")" = "true" ]; then
+            echo "::warning::Removing a human-reviewed label that doesn't count: $(jq -r .reason "$REVIEW_JSON")"
+            gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/human-reviewed" > /dev/null \
+              || echo "::warning::Couldn't remove the human-reviewed label; remove it by hand."
+          fi
 
+      - name: Post the verdict
+        if: steps.pr.outputs.found == 'true'
+        env:
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        run: |
+          TIER=$(jq -r .tier "$RUNNER_TEMP/tier.json")
           if [ "$TIER" = "low" ]; then
-            if printf '%s\n' "$LABELS" | grep -qx 'risk: high'; then
-              gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/risk%3A%20high" \
-                || echo "::warning::Couldn't remove the risk: high label."
-            fi
-            exit 0
+            STATE=success; DESC="Low risk"
+          elif [ "$(jq -r .approved "$RUNNER_TEMP/review.json")" = "true" ]; then
+            STATE=success; DESC="High risk, human-reviewed"
+          else
+            STATE=failure; DESC="High risk: needs human-reviewed. $(jq -r .reason "$RUNNER_TEMP/review.json")"
           fi
+          GH_TOKEN="$APP_TOKEN" gh api -X POST "repos/$GH_REPO/statuses/$HEAD_SHA" \
+            -f state="$STATE" -f context=risk-tier -f description="${DESC:0:139}" \
+            -f target_url="$RUN_URL" > /dev/null
+          echo "risk-tier: $STATE ($DESC)"
 
-          gh api -X POST "repos/$GH_REPO/issues/$PR/labels" -f 'labels[]=risk: high' > /dev/null \
-            || echo "::warning::Couldn't add the risk: high label."
-          if [ "$(jq -r .approved "$REVIEW_JSON")" = "true" ]; then
-            echo "High risk; $(jq -r .reason "$REVIEW_JSON")"
-            exit 0
-          fi
-          TRIGGERS=$(jq -r '(.files + .packages) | .[:20] | join(", ")' "$TIER_JSON")
-          echo "::error::High-risk changes need your review: $TRIGGERS. Read them, then add the human-reviewed label. ($(jq -r .reason "$REVIEW_JSON"))"
-          exit 1
+      # Anything above broke after "Mark pending": say so on the commit. If even this
+      # fails, the pending status stays, which blocks the merge too.
+      - name: Post an error
+        if: failure() && steps.app.outputs.token != ''
+        env:
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        run: |
+          GH_TOKEN="$APP_TOKEN" gh api -X POST "repos/$GH_REPO/statuses/$HEAD_SHA" \
+            -f state=error -f context=risk-tier -f description="The risk tier gate failed; see the run" \
+            -f target_url="$RUN_URL" > /dev/null

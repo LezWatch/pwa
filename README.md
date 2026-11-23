@@ -264,7 +264,8 @@ PRs into `production` or a `release/*` branch also get `risk-tier`. Anything
 risky (CI, Docker, config, routes, auth, migrations, the test harness, most of
 `app/`, or anything not on the low-risk list) stays red until Mika reads it and
 adds the `human-reviewed` label. A new push needs a new review. The gate runs
-from the base branch, so a PR can't change the gate that judges it.
+from `production` (on `workflow_run`), so a PR can't change the gate that
+judges it, and its result only counts if it comes from the risk-gate GitHub App.
 
 How it works, how to approve a PR, and how to move a path between lists:
 [docs/runbooks/risk-gate.md](docs/runbooks/risk-gate.md).
