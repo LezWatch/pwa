@@ -13,6 +13,9 @@ services:
       RUN_MIGRATIONS: "true"
     volumes:
       - lwtv-data:/var/www/html/database/data
+      # Google service account key for the admin's group check. Gitignored
+      # and kept out of the image; an empty or missing folder is fine.
+      - ./secrets:/run/secrets:ro
     restart: unless-stopped
 
   scheduler:

@@ -109,7 +109,8 @@ changing `.env`:
 docker compose -f compose.yaml up -d --force-recreate app scheduler
 ```
 
-Logs, including sync failures, go to `docker compose -f compose.yaml logs`.
+Logs, including sync failures, go to `docker compose -f compose.yaml logs`. The
+admin page (see [Admin](#admin)) keeps a record of every sync run.
 
 ## Sync the catalogue
 
@@ -121,7 +122,9 @@ docker compose exec app php artisan lwtv:sync
 
 It reads `GET {LWTV_API_URL}/wp-json/lwtv/v1/list/shows`. If the fetch fails,
 or comes back empty or in a shape with no usable shows, the command logs the
-reason, exits with an error, and leaves the cached shows as they were.
+reason, exits with an error, and leaves the cached shows as they were. Every
+run, whether it succeeds or fails, is recorded in the `sync_runs` table, which
+the admin shows.
 
 ## API
 
@@ -136,6 +139,72 @@ reason, exits with an error, and leaves the cached shows as they were.
   ]
 }
 ```
+
+## Admin
+
+A staff-only page at `{APP_URL}/{ADMIN_PATH}` shows the sync log (every run,
+whether scheduled, from the command line or from the admin) with the reason
+for each failure. It also has a **Sync now** button that does the same work
+as `php artisan lwtv:sync`. If a sync is already running, the button says so
+and does nothing.
+
+Only members of the Google Group `pwa-admins@lezwatchtv.com` can sign in,
+nested groups included. Staff sign in with Google, so the app never sees a
+password. The app stores no staff details in the database: the email lives
+only in the admin's own encrypted session cookie, which is scoped to the admin
+path and never sent to the public pages.
+
+The admin is off until `ADMIN_PATH` is set. Choose a long random value and keep
+it out of the repo. It keeps scanners away, but it is not the lock: Google
+sign-in plus the group check is.
+
+### Set it up
+
+You need a Google Workspace super admin for step 4.
+
+1. In Google Cloud, create or pick a project and enable the
+   **Cloud Identity API**.
+2. Set up the OAuth consent screen as **Internal**, then create an
+   **OAuth client ID** (type: web application). Add this authorized redirect
+   URI, once for each place the app runs:
+
+   ```
+   {APP_URL}/{ADMIN_PATH}/callback
+   ```
+
+   For example `https://pwa.lezwatchtv.com/<secret>/callback`, and
+   `http://localhost:8069/<secret>/callback` locally.
+3. Create a **service account** with no project roles, and download a JSON key
+   for it. Save it as `secrets/google-service-account.json` next to
+   `compose.yaml`. The `secrets/` folder is gitignored, kept out of the image,
+   and mounted read-only at `/run/secrets`.
+4. In the Google Admin console, go to **Account > Admin roles > Groups Reader >
+   Admins assigned**, and assign the role to the service account's email. That
+   lets it read group membership. It needs no domain-wide delegation.
+5. In `.env`:
+
+   ```
+   ADMIN_PATH=<long random string>
+   GOOGLE_CLIENT_ID=<from step 2>
+   GOOGLE_CLIENT_SECRET=<from step 2>
+   GOOGLE_SERVICE_ACCOUNT_KEY=/run/secrets/google-service-account.json
+   ```
+
+   `ADMIN_GROUP` and `GOOGLE_WORKSPACE_DOMAIN` default to
+   `pwa-admins@lezwatchtv.com` and `lezwatchtv.com`.
+6. Restart the app container. In production, routes and config are cached on
+   start, so changing `ADMIN_PATH` always needs a restart.
+
+### How access is checked
+
+- Sign-in only accepts verified accounts whose Google token says they belong
+  to `GOOGLE_WORKSPACE_DOMAIN`.
+- Group membership is checked at sign-in, then rechecked every
+  `ADMIN_RECHECK_MINUTES`, which defaults to `1440` (daily). The admin session
+  lasts that long too. Someone removed from the group loses access at their
+  next recheck.
+- If Google can't be reached or answers with an error, access is refused, and
+  someone already signed in is signed out.
 
 ## Point at production
 
