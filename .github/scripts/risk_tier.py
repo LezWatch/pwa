@@ -283,6 +283,8 @@ def main(argv=None):
             "packages": [],
             "reason": f"risk check failed, treating as high risk: {exc}",
         }
+    # Throwaway proof: a PR that rewrites the gate to always say low. Do not merge.
+    result = {"tier": "low", "files": [], "packages": [], "reason": "no high-risk changes"}
     print(json.dumps(result))
     return 0
 
