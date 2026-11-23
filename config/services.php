@@ -35,4 +35,11 @@ return [
         ],
     ],
 
+    // Staff sign-in for the admin. The redirect is set at runtime from the admin path.
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => null,
+    ],
+
 ];

@@ -28,3 +28,4 @@ Thumbs.db
 /.vagrant
 /database/data/
 /database/database.sqlite
+/secrets/

@@ -2,43 +2,19 @@
 
 namespace Tests\Feature;
 
-use App\Catalogue\CatalogueSource;
 use App\Catalogue\CatalogueUnavailable;
-use App\Catalogue\ShowRecord;
 use App\Models\Show;
+use App\Models\SyncRun;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Tests\Concerns\FakesCatalogueSource;
 use Tests\TestCase;
 
 class SyncCatalogueTest extends TestCase
 {
-    use RefreshDatabase;
-
-    /** @param  list<ShowRecord>|CatalogueUnavailable  $result */
-    private function fakeSource(array|CatalogueUnavailable $result): void
-    {
-        $this->app->instance(CatalogueSource::class, new class($result) implements CatalogueSource
-        {
-            public function __construct(private array|CatalogueUnavailable $result) {}
-
-            public function shows(): array
-            {
-                if ($this->result instanceof CatalogueUnavailable) {
-                    throw $this->result;
-                }
-
-                return $this->result;
-            }
-        });
-    }
-
-    private function record(int $id, string $title, bool $onAir = false): ShowRecord
-    {
-        $slug = str($title)->slug()->toString();
-
-        return new ShowRecord($id, $title, $slug, "https://lwtv.local/show/{$slug}/", $onAir);
-    }
+    use FakesCatalogueSource, RefreshDatabase;
 
     private function existing(int $id, string $title): Show
     {
@@ -127,10 +103,37 @@ class SyncCatalogueTest extends TestCase
         $events = collect(app(Schedule::class)->events())
             ->filter(fn ($event) => str_contains($event->command ?? '', 'lwtv:sync'));
 
+        $this->assertStringContainsString('--trigger=schedule', $events->first()?->command ?? '');
+
         $this->assertCount(1, $events);
         $this->assertSame('0 */6 * * *', $events->first()->expression);
         $this->assertTrue($events->first()->withoutOverlapping);
         // A killed run must not block syncing for the default 24 hours.
         $this->assertSame(30, $events->first()->expiresAt);
+    }
+
+    public function test_cli_run_is_recorded_as_cli(): void
+    {
+        $this->fakeSource([$this->record(1, 'Alpha')]);
+
+        $this->artisan('lwtv:sync')->assertExitCode(0);
+
+        $run = SyncRun::sole();
+        $this->assertSame('cli', $run->trigger);
+        $this->assertSame(SyncRun::STATUS_SUCCEEDED, $run->status);
+    }
+
+    public function test_it_fails_cleanly_when_a_sync_is_already_running(): void
+    {
+        $lock = Cache::store('database')->lock('lwtv:sync', 900);
+        $lock->get();
+        $this->fakeSource([$this->record(1, 'Alpha')]);
+
+        $this->artisan('lwtv:sync')
+            ->expectsOutput('Catalogue sync skipped: another sync is already running.')
+            ->assertExitCode(1);
+
+        $lock->release();
+        $this->assertSame(0, Show::count());
     }
 }

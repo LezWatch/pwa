@@ -48,6 +48,24 @@ mounts the source (including `vendor/`) into the containers.
 live editing and maps `lwtv.local` to your Mac so the containers can reach the
 Local site. It is for local use only.
 
+### npm shortcuts
+
+| Command | Runs | Use it to |
+| --- | --- | --- |
+| `npm run installer` | `npm install && composer install` | Install Node and PHP dependencies. |
+| `npm run build` | `docker compose up -d --build` | Rebuild the images and start the stack. |
+| `npm run start` | `docker compose up -d` | Start the stack without rebuilding. |
+| `npm run stop` | `docker compose down` | Stop the stack and remove its containers. |
+
+`npm run stop` uses `down`, not `down -v`, so the `lwtv-data` volume that holds
+the SQLite database is kept. `down` is used instead of `stop` so the next
+`npm run start` gets fresh containers, with no leftovers from the last run.
+
+These wrap the default compose files, so they include `compose.override.yaml`.
+They are for local use. On a server, use the `-f compose.yaml` commands below.
+
+The old Vite build is now `npm run build:assets`. Nothing uses it yet.
+
 ## Run on a server
 
 No PHP is needed on the host; everything runs in the containers.
@@ -67,8 +85,8 @@ No PHP is needed on the host; everything runs in the containers.
    docker compose -f compose.yaml run --rm --no-deps app php artisan key:generate --show
    ```
 
-   Without a key, `/` returns a 500 error (it can't encrypt cookies), while
-   `/api/shows` keeps working.
+   The key encrypts the admin's session cookie. The public pages set no
+   cookies, so `/` and `/api/shows` work without it, but the admin won't.
 
 3. Start the stack with only the production file, so the override is skipped:
 
@@ -91,7 +109,8 @@ changing `.env`:
 docker compose -f compose.yaml up -d --force-recreate app scheduler
 ```
 
-Logs, including sync failures, go to `docker compose -f compose.yaml logs`.
+Logs, including sync failures, go to `docker compose -f compose.yaml logs`. The
+admin page (see [Admin](#admin)) keeps a record of every sync run.
 
 ## Sync the catalogue
 
@@ -103,11 +122,17 @@ docker compose exec app php artisan lwtv:sync
 
 It reads `GET {LWTV_API_URL}/wp-json/lwtv/v1/list/shows`. If the fetch fails,
 or comes back empty or in a shape with no usable shows, the command logs the
-reason, exits with an error, and leaves the cached shows as they were.
+reason, exits with an error, and leaves the cached shows as they were. Every
+run, whether it succeeds or fails, is recorded in the `sync_runs` table, which
+the admin shows.
 
 ## API
 
-`GET /api/shows` returns the cached catalogue for the PWA. It sets no cookies.
+`GET /api/shows` returns the cached catalogue for the PWA.
+
+No public page sets cookies: `/`, `/api/shows` and `/up` run without a session
+or CSRF token. Only the admin has a session, and its cookie is scoped to the
+admin path. Tests in `tests/Feature/PublicCookiesTest.php` hold this in place.
 
 ```json
 {
@@ -118,6 +143,85 @@ reason, exits with an error, and leaves the cached shows as they were.
   ]
 }
 ```
+
+## Admin
+
+A staff-only page at `{APP_URL}/{ADMIN_PATH}` shows the sync log (every run,
+whether scheduled, from the command line or from the admin) with the reason
+for each failure. It also has a **Sync now** button that does the same work
+as `php artisan lwtv:sync`. If a sync is already running, the button says so
+and does nothing.
+
+Only members of the Google Group `pwa-admins@lezwatchtv.com` can sign in,
+nested groups included. Staff sign in with Google, so the app never sees a
+password. The app stores no staff details in the database: the email lives
+only in the admin's own encrypted session cookie, which is scoped to the admin
+path and never sent to the public pages.
+
+The admin is off until `ADMIN_PATH` is set. Choose a long random value and keep
+it out of the repo. It keeps scanners away, but it is not the lock: Google
+sign-in plus the group check is.
+
+### Set it up
+
+You need a Google Workspace super admin for step 4.
+
+For the click-by-click version, plus a local test, adding and removing admins,
+rotating secrets, and troubleshooting, use the runbook:
+[docs/runbooks/google-sign-in.md](docs/runbooks/google-sign-in.md).
+
+1. In Google Cloud, create or pick a project and enable the
+   **Admin SDK API**. The app uses its Directory API `members.hasMember`
+   check, which follows nested groups and works on every Workspace edition.
+2. Set up the OAuth consent screen as **Internal**, then create an
+   **OAuth client ID** (type: web application). Add this authorized redirect
+   URI, once for each place the app runs:
+
+   ```
+   {APP_URL}/{ADMIN_PATH}/callback
+   ```
+
+   For example `https://pwa.lezwatchtv.com/<secret>/callback`, and
+   `http://localhost:8069/<secret>/callback` locally.
+3. Create a **service account** with no project roles, and download a JSON key
+   for it. Save it as `secrets/google-service-account.json` next to
+   `compose.yaml`. The `secrets/` folder is gitignored, kept out of the image,
+   and mounted read-only at `/run/secrets`. The PHP-FPM workers run as
+   `www-data`, so the file must be readable by that user. On the server,
+   `chmod 644 secrets/google-service-account.json` (keep the folder itself
+   readable only by people who should see it). If the key can't be read,
+   nobody can sign in, and the log says why.
+4. In the Google Admin console, go to **Account > Admin roles > Groups Reader >
+   Admins assigned**, and assign the role to the service account's email. That
+   lets it read group membership. It needs no domain-wide delegation.
+5. In `.env`:
+
+   ```
+   ADMIN_PATH=<long random string>
+   GOOGLE_CLIENT_ID=<from step 2>
+   GOOGLE_CLIENT_SECRET=<from step 2>
+   GOOGLE_SERVICE_ACCOUNT_KEY=/run/secrets/google-service-account.json
+   ```
+
+   `ADMIN_GROUP` and `GOOGLE_WORKSPACE_DOMAIN` default to
+   `pwa-admins@lezwatchtv.com` and `lezwatchtv.com`.
+   The Google return address is built from `APP_URL`, so `APP_URL` must be
+   the public `https://` address. The admin cookie is marked Secure when it is.
+6. Restart the app container. In production, routes and config are cached on
+   start, so changing `ADMIN_PATH` always needs a restart.
+
+### How access is checked
+
+- Sign-in only accepts verified accounts whose Google token says they belong
+  to `GOOGLE_WORKSPACE_DOMAIN`.
+- Group membership is checked at sign-in, then rechecked every
+  `ADMIN_RECHECK_MINUTES`, which defaults to `1440` (daily). The admin session
+  lasts that long too. Someone removed from the group loses access at their
+  next recheck.
+- If Google can't be reached or answers with an error, access is refused, and
+  someone already signed in is signed out.
+- Sign-in not working? See
+  [Troubleshooting in the runbook](docs/runbooks/google-sign-in.md#5-troubleshooting-by-symptom).
 
 ## Point at production
 
