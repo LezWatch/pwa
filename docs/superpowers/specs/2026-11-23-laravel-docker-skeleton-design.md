@@ -13,7 +13,7 @@ stack and the data path work on a laptop.
 
 ## Goals
 
-- `docker compose up` brings the app up locally at `http://localhost:8080`.
+- `docker compose up` brings the app up locally at `http://localhost:8069`.
 - An artisan command fetches show data from lezwatchtv.com and caches it.
 - The scheduler runs that command on a timer.
 - One plain page lists the cached shows; `GET /api/shows` returns them as JSON
@@ -57,7 +57,7 @@ Containers (one process each):
 - `app`: PHP 8.4 FPM (official image) running current Laravel. Code baked into
   the image.
 - `web`: nginx (official image). Serves `public/` static files, passes PHP to
-  `app:9000`. Publishes `127.0.0.1:8080`.
+  `app:9000`. Publishes `127.0.0.1:8069`.
 - `scheduler`: same image as `app`, runs `php artisan schedule:work`.
 
 Data: SQLite file on a named volume (`storage/`). Postgres is a later swap if
