@@ -59,3 +59,52 @@ docker compose -f compose.yaml up -d --build
 
 The stack listens on `127.0.0.1:${APP_PORT}`. Proxy to it from the host nginx,
 which keeps handling the domain and TLS.
+
+## Sync the catalogue
+
+The scheduler runs `php artisan lwtv:sync` every six hours. To run it now:
+
+```bash
+docker compose exec app php artisan lwtv:sync
+```
+
+It reads `GET {LWTV_API_URL}/wp-json/lwtv/v1/list/shows`. If the fetch fails
+or comes back empty, the command exits with an error and the cached shows are
+left as they were.
+
+## API
+
+`GET /api/shows` returns the cached catalogue for the PWA. It sets no cookies.
+
+```json
+{
+  "schema_version": 1,
+  "count": 2266,
+  "shows": [
+    {"id": 27002, "title": ".hack//SIGN", "slug": "hack-sign", "url": "https://lezwatchtv.com/show/hack-sign/", "on_air": false}
+  ]
+}
+```
+
+## Point at production
+
+In `.env`:
+
+```
+LWTV_API_URL=https://lezwatchtv.com
+LWTV_API_VERIFY_TLS=true
+```
+
+## Tests
+
+```bash
+php artisan test
+```
+
+Or inside the PHP 8.4 container:
+
+```bash
+docker compose exec app php artisan test
+```
+
+Tests never call lezwatchtv.com or lwtv.local.
