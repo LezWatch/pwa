@@ -1,0 +1,29 @@
+# Local development only. Docker Compose loads this automatically on top of
+# compose.yaml. Do not use it on the server.
+
+services:
+  app:
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+    volumes:
+      - ./:/var/www/html
+      - lwtv-data:/var/www/html/database/data
+    extra_hosts:
+      - "lwtv.local:host-gateway"
+      - "www.lwtv.local:host-gateway"
+
+  scheduler:
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+    volumes:
+      - ./:/var/www/html
+      - lwtv-data:/var/www/html/database/data
+    extra_hosts:
+      - "lwtv.local:host-gateway"
+      - "www.lwtv.local:host-gateway"
+
+  web:
+    volumes:
+      - ./public:/var/www/html/public:ro
