@@ -4,6 +4,8 @@ namespace App\Catalogue;
 
 use App\Models\Show;
 use App\Models\SyncRun;
+use Illuminate\Contracts\Cache\Lock;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -36,7 +38,19 @@ class CatalogueSync
     {
         $lock = Cache::store(self::LOCK_STORE)->lock(self::LOCK_NAME, self::LOCK_SECONDS);
 
-        if (! $lock->get()) {
+        try {
+            $acquired = $lock->get();
+        } catch (QueryException $e) {
+            if (! self::isBusy($e)) {
+                throw $e;
+            }
+
+            // SQLite stayed busy past its timeout: something else is writing,
+            // most likely another sync's transaction. Same answer: not now.
+            throw new SyncAlreadyRunning($e);
+        }
+
+        if (! $acquired) {
             throw new SyncAlreadyRunning;
         }
 
@@ -59,8 +73,32 @@ class CatalogueSync
                 throw $e;
             }
         } finally {
-            $lock->release();
+            $this->release($lock);
         }
+    }
+
+    /**
+     * The sync's own result matters more than the unlock. If the database is
+     * too busy to release, the lock expires on its own after LOCK_SECONDS.
+     */
+    private function release(Lock $lock): void
+    {
+        try {
+            $lock->release();
+        } catch (QueryException $e) {
+            Log::warning('Catalogue sync lock not released; it will expire on its own', [
+                'reason' => $e->getMessage(),
+                'expires_in_seconds' => self::LOCK_SECONDS,
+            ]);
+        }
+    }
+
+    /** SQLITE_BUSY (5) or SQLITE_LOCKED (6), as PDO reports them. */
+    private static function isBusy(QueryException $e): bool
+    {
+        return in_array($e->errorInfo[1] ?? null, [5, 6], true)
+            || str_contains($e->getMessage(), 'database is locked')
+            || str_contains($e->getMessage(), 'database table is locked');
     }
 
     private function sync(SyncRun $run): SyncRun

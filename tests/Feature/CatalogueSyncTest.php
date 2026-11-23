@@ -7,9 +7,14 @@ use App\Catalogue\CatalogueUnavailable;
 use App\Catalogue\SyncAlreadyRunning;
 use App\Models\Show;
 use App\Models\SyncRun;
+use Illuminate\Contracts\Cache\Lock;
+use Illuminate\Contracts\Cache\Repository;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Mockery;
+use PDOException;
 use RuntimeException;
 use Tests\Concerns\FakesCatalogueSource;
 use Tests\TestCase;
@@ -115,5 +120,68 @@ class CatalogueSyncTest extends TestCase
         $this->assertFalse($fresh->isStalled());
         $this->assertTrue($old->isStalled());
         $this->assertFalse($done->isStalled());
+    }
+
+    private function busyDatabaseLock(string $failOn, string $error = 'SQLSTATE[HY000]: General error: 5 database is locked'): void
+    {
+        $busy = new QueryException('sqlite', 'update "cache_locks" ...', [], new PDOException($error));
+
+        $lock = Mockery::mock(Lock::class);
+        if ($failOn === 'get') {
+            $lock->shouldReceive('get')->andThrow($busy);
+        } else {
+            $lock->shouldReceive('get')->andReturn(true);
+            $lock->shouldReceive('release')->andThrow($busy);
+        }
+
+        $store = Mockery::mock(Repository::class);
+        $store->shouldReceive('lock')->with(CatalogueSync::LOCK_NAME, CatalogueSync::LOCK_SECONDS)->andReturn($lock);
+        Cache::shouldReceive('store')->with(CatalogueSync::LOCK_STORE)->andReturn($store);
+    }
+
+    public function test_busy_database_while_locking_counts_as_already_running(): void
+    {
+        $this->busyDatabaseLock('get');
+        $this->fakeSource([$this->record(1, 'Alpha')]);
+
+        $this->expectException(SyncAlreadyRunning::class);
+
+        try {
+            $this->sync()->run('admin');
+        } finally {
+            $this->assertSame(0, SyncRun::count());
+        }
+    }
+
+    public function test_busy_database_while_unlocking_keeps_the_result(): void
+    {
+        Log::spy();
+        $this->busyDatabaseLock('release');
+        $this->fakeSource([$this->record(1, 'Alpha')]);
+
+        $run = $this->sync()->run('admin');
+
+        $this->assertSame(SyncRun::STATUS_SUCCEEDED, $run->status);
+        $this->assertSame(1, Show::count());
+        Log::shouldHaveReceived('warning')->withArgs(fn ($message) => str_contains($message, 'lock'))->once();
+    }
+
+    public function test_cli_reports_busy_database_as_skipped(): void
+    {
+        $this->busyDatabaseLock('get');
+        $this->fakeSource([$this->record(1, 'Alpha')]);
+
+        $this->artisan('lwtv:sync')
+            ->expectsOutput('Catalogue sync skipped: another sync is already running.')
+            ->assertExitCode(1);
+    }
+
+    public function test_other_database_errors_while_locking_are_not_hidden(): void
+    {
+        $this->busyDatabaseLock('get', 'SQLSTATE[HY000]: General error: 1 no such table: cache_locks');
+        $this->fakeSource([$this->record(1, 'Alpha')]);
+
+        $this->expectException(QueryException::class);
+        $this->sync()->run('admin');
     }
 }
