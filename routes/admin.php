@@ -16,5 +16,6 @@ Route::name('admin.')->group(function () {
 
     Route::middleware(RequireAdmin::class)->group(function () {
         Route::get('/', [SyncController::class, 'index'])->name('dashboard');
+        Route::post('sync', [SyncController::class, 'sync'])->name('sync');
     });
 });
