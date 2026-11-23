@@ -64,6 +64,13 @@ the SQLite database is kept. `down` is used instead of `stop` so the next
 These wrap the default compose files, so they include `compose.override.yaml`.
 They are for local use. On a server, use the `-f compose.yaml` commands below.
 
+Because the override mounts your checkout into the containers, the app uses
+your local `vendor/`, not the one built into the image. Run `npm run installer`
+before the first `npm run build`, and again whenever `composer.json` or
+`composer.lock` changes. If you skip it, the app and scheduler containers stop
+straight away, and `docker compose logs app` says `vendor/autoload.php is
+missing`.
+
 The old Vite build is now `npm run build:assets`. Nothing uses it yet.
 
 ## Run on a server
