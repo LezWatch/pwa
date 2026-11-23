@@ -58,8 +58,24 @@ would come from GitHub Actions, not the App, so it doesn't count. The App's key
 is stored in the `risk-gate` environment, which only `production` can use, so
 a workflow in a PR can't reach it.
 
-If anything goes wrong (the trigger is deleted, the gate errors, the App token
-fails), there's no `success` status from the App, so the PR stays blocked.
+Each run judges exactly the commit the trigger ran on. It marks that commit
+`pending` first, then posts `success` or `failure`, or `error` if it breaks.
+It posts `failure` when the commit heads no open PR into a gated branch, or
+heads more than one (a status belongs to a commit, so one verdict can't fit two
+PRs).
+
+Where it can't post at all, an older status on that commit stands:
+* **The trigger didn't run.** The PR deleted or broke `risk-tier-trigger.yml`,
+  or dropped `unlabeled` from its triggers so removing your label starts
+  nothing. That edit is in `.github/`, so it's high risk and you'll have read it.
+* **The App token failed.** Check the environment's variable and secret.
+
+A new commit always starts with no status, so it's blocked until the gate
+judges it.
+
+Changing `HUMAN_REVIEWERS` or the lists doesn't re-judge open PRs. Their
+current statuses stand until something triggers the gate again (a push, or a
+label change).
 
 > **Biggest gap: agents that use Mika's login.** The gate tells people apart by
 > GitHub login. An agent working under Mika's own account (her `gh` login, a
@@ -130,8 +146,8 @@ into it, Dependabot's included.
    * Install App → LezWatch → **Only select repositories** → `pwa`.
 4. **The environment.** Repo Settings → Environments → New environment →
    `risk-gate`.
-   * Deployment branches and tags: **Selected branches and tags** → add
-     `production`. Nothing else.
+   * Deployment branches and tags: **Selected branches and tags** → add a rule,
+     ref type **Branch** (not Tag), name `production`. Nothing else.
    * Environment variable `RISK_GATE_APP_CLIENT_ID` = the Client ID.
    * Environment secret `RISK_GATE_APP_PRIVATE_KEY` = the whole `.pem` file.
    * Then delete the downloaded `.pem`.
@@ -142,6 +158,13 @@ into it, Dependabot's included.
    `PHPUnit`, `Docker build`, `security`, `scan-pr / osv-scan`, plus
    `risk-tier` **from the risk-gate App** (in the UI, pick the App as the
    source; in the API, `integration_id` = the App ID). No bypass actors.
+   * Leave **"Do not require status checks on creation"** unticked (API:
+     `do_not_enforce_on_create: false`). Otherwise someone could push a new
+     `release/x` branch full of unreviewed commits, and the gate's retarget
+     logic assumes everything on a release branch was reviewed.
+   * The UI may only offer the App as a source once it has posted a
+     `risk-tier` status. If it isn't listed, open one test PR first, or set it
+     with the API.
 
 ## 6. Troubleshooting by symptom
 
@@ -169,6 +192,20 @@ if it's still red, push a new commit and review that.
 Your login isn't in `HUMAN_REVIEWERS`, or the variable is unset (unset means
 nobody counts), or there was a push just before your label. Fix the variable if
 needed, then add the label again.
+
+**A Dependabot PR sits at "Expected — Waiting for status to be reported".**
+Check the "Risk tier" run on `production`. If it failed at "Token for the
+risk-gate App", GitHub didn't give the environment's secret to a run that
+Dependabot started. The ruleset has no bypass, so it can't be merged as is:
+close it and open the same bump yourself, from a branch in this repo.
+
+**`risk-tier` says "No open PR into a gated branch has this commit as its head".**
+The branch moved on (a newer run judges the newer commit), the PR is from a
+fork, or it isn't into `production` or `release/*`.
+
+**`risk-tier` says "This commit heads 2 gated PRs".**
+The same commit is the head of two PRs into gated branches. Close one, or push
+a new commit to one of them.
 
 **`risk-tier` shows "error: The risk tier gate failed".**
 Something in the gate broke after it started. Open the run from the status's

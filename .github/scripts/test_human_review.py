@@ -187,6 +187,19 @@ class TestRemoveLabel(unittest.TestCase):
         events = [_label("labeled", "2026-11-23T09:59:00Z"), _label("unlabeled", "2026-11-23T10:01:00Z")]
         self.assertFalse(_decide(events, [_push(HEAD, "2026-11-23T10:00:00Z")])["remove_label"])
 
+    def test_review_withdrawn_by_removal_needs_no_removal(self):
+        events = [_label("labeled", "2026-11-23T10:05:00Z"), _label("unlabeled", "2026-11-23T10:06:00Z")]
+        result = _decide(events, [_push(HEAD, "2026-11-23T10:00:00Z")])
+        self.assertFalse(result["approved"])
+        self.assertFalse(result["remove_label"], result)
+
+    def test_bot_relabel_after_withdrawal_is_removed(self):
+        events = [_label("labeled", "2026-11-23T10:05:00Z"), _label("unlabeled", "2026-11-23T10:06:00Z"),
+                  _label("labeled", "2026-11-23T10:07:00Z", login="github-actions[bot]", kind="Bot")]
+        result = _decide(events, [_push(HEAD, "2026-11-23T10:00:00Z")])
+        self.assertFalse(result["approved"])
+        self.assertTrue(result["remove_label"], result)
+
     def test_no_removal_when_the_push_time_is_unknown(self):
         # Can't tell whether Mika's label is stale; leave it alone.
         result = _decide([_label("labeled", "2026-11-23T10:05:00Z")], [_push(OLD, "2026-11-23T10:00:00Z")])

@@ -19,11 +19,16 @@ permissions:
   pull-requests: write
   issues: write
 
-# Each run judges the PR's current head from GitHub's records, so cancelling an older run
-# loses nothing.
+# Runs for the same branch queue instead of cancelling each other, so a run is never
+# killed between "pending" and its verdict. Each run reads fresh state, so queueing costs
+# nothing. Runs that aren't for a pull_request (a PR-added workflow can borrow the
+# trigger's name) get a group of their own, so they can't push a real run out.
 concurrency:
-  group: risk-tier-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
-  cancel-in-progress: true
+  group: >-
+    risk-tier-${{ github.event.workflow_run.event == 'pull_request'
+    && format('{0}-{1}', github.event.workflow_run.head_repository.full_name, github.event.workflow_run.head_branch)
+    || github.run_id }}
+  cancel-in-progress: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -47,43 +52,13 @@ jobs:
       GH_REPO: ${{ github.repository }}
       HUMAN_REVIEWERS: ${{ vars.HUMAN_REVIEWERS }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      PULLS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
+      # The commit the trigger ran on. Every status this run posts goes here.
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
-      # The run's payload names the PR; everything else is read fresh from the API, so a
-      # late run judges the PR's current head, not the commit that triggered it. Forks
-      # aren't listed in the payload, so their PRs get no status and stay blocked.
-      - name: Find the pull request
-        id: pr
-        run: |
-          COUNT=$(jq 'length' <<< "$PULLS")
-          if [ "$COUNT" -ne 1 ]; then
-            echo "::warning::This run lists $COUNT pull requests; the gate handles exactly one. No status posted."
-            echo "found=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          NUMBER=$(jq -r '.[0].number' <<< "$PULLS")
-          gh api "repos/$GH_REPO/pulls/$NUMBER" > "$RUNNER_TEMP/pr.json"
-          jq -e --arg repo "$GH_REPO" '
-            .state == "open"
-            and .head.repo.full_name == $repo
-            and (.base.ref == "production" or (.base.ref | startswith("release/")))
-            and (.head.sha | test("^[0-9a-f]{40}$"))
-            and (.base.sha | test("^[0-9a-f]{40}$"))' "$RUNNER_TEMP/pr.json" > /dev/null || {
-            echo "::warning::PR #$NUMBER is closed, from a fork, or not into a gated branch. No status posted."
-            echo "found=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          }
-          {
-            echo "found=true"
-            echo "number=$NUMBER"
-            echo "head_sha=$(jq -r .head.sha "$RUNNER_TEMP/pr.json")"
-          } >> "$GITHUB_OUTPUT"
-
-      # The only credential that can post the status the ruleset counts. Used for nothing
-      # else.
+      # The only credential that can post the status the ruleset counts. Fetched first,
+      # so every path below can post a verdict. Used for nothing else.
       - name: Token for the risk-gate App
         id: app
-        if: steps.pr.outputs.found == 'true'
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.RISK_GATE_APP_CLIENT_ID }}
@@ -93,27 +68,65 @@ jobs:
       # Pending first, so a run that dies halfway can't leave an older success standing
       # on this commit (say, after Mika removed her label to withdraw a review).
       - name: Mark pending
-        if: steps.pr.outputs.found == 'true'
         env:
           APP_TOKEN: ${{ steps.app.outputs.token }}
-          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
           GH_TOKEN="$APP_TOKEN" gh api -X POST "repos/$GH_REPO/statuses/$HEAD_SHA" \
             -f state=pending -f context=risk-tier -f description="Checking risk tier" \
             -f target_url="$RUN_URL" > /dev/null
 
-      # The gate's own scripts and lists, from the default branch.
+      # The gate's own scripts, filter and lists, from the default branch.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.pr.outputs.found == 'true'
         with:
           path: base
           persist-credentials: false
+
+      # Judge exactly the commit the trigger ran on (HEAD_SHA). The PRs come from the
+      # run's payload plus a lookup by commit (the payload can be empty), each re-read
+      # from the API. A commit status belongs to the commit, not the PR, so if this head
+      # is in more than one gated PR, one verdict can't fit both: fail. If it's in none
+      # (a fork, a closed PR, a branch that moved on), there's nothing to approve: fail.
+      # Failing is always safe; a newer run judges a newer head.
+      - name: Find the pull request
+        id: pr
+        env:
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+          PULLS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
+        run: |
+          {
+            jq -r '.[].number' <<< "$PULLS"
+            gh api "repos/$GH_REPO/commits/$HEAD_SHA/pulls" --jq '.[].number'
+          } | sort -un > "$RUNNER_TEMP/numbers.txt"
+          while read -r NUMBER; do
+            gh api "repos/$GH_REPO/pulls/$NUMBER"
+          done < "$RUNNER_TEMP/numbers.txt" | jq -s . > "$RUNNER_TEMP/candidates.json"
+          jq --arg repo "$GH_REPO" --arg sha "$HEAD_SHA" \
+            -f "$GITHUB_WORKSPACE/base/.github/scripts/gated_prs.jq" "$RUNNER_TEMP/candidates.json" > "$RUNNER_TEMP/gated.json"
+          COUNT=$(jq length "$RUNNER_TEMP/gated.json")
+          if [ "$COUNT" -ne 1 ]; then
+            if [ "$COUNT" -eq 0 ]; then
+              DESC="No open PR into a gated branch has this commit as its head"
+            else
+              DESC="This commit heads $COUNT gated PRs; one verdict can't cover them all"
+            fi
+            echo "::warning::$DESC. Posting failure."
+            GH_TOKEN="$APP_TOKEN" gh api -X POST "repos/$GH_REPO/statuses/$HEAD_SHA" \
+              -f state=failure -f context=risk-tier -f description="$DESC" \
+              -f target_url="$RUN_URL" > /dev/null
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          jq '.[0]' "$RUNNER_TEMP/gated.json" > "$RUNNER_TEMP/pr.json"
+          {
+            echo "found=true"
+            echo "number=$(jq -r .number "$RUNNER_TEMP/pr.json")"
+          } >> "$GITHUB_OUTPUT"
 
       # The PR's commits, as data only. Full history so the base commit is present too.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.pr.outputs.found == 'true'
         with:
-          ref: ${{ steps.pr.outputs.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha }}
           path: pr
           fetch-depth: 0
           persist-credentials: false
@@ -125,8 +138,6 @@ jobs:
       - name: Classify
         if: steps.pr.outputs.found == 'true'
         working-directory: pr
-        env:
-          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
           BASE_SHA=$(jq -r .base.sha "$RUNNER_TEMP/pr.json")
           python3 -I "$GITHUB_WORKSPACE/base/.github/scripts/risk_tier.py" \
@@ -142,7 +153,6 @@ jobs:
         if: steps.pr.outputs.found == 'true'
         env:
           PR: ${{ steps.pr.outputs.number }}
-          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
           echo '{"approved": false, "remove_label": false, "reason": "not checked"}' > "$RUNNER_TEMP/review.json"
           if [ "$(jq -r .tier "$RUNNER_TEMP/tier.json")" != "high" ]; then exit 0; fi
@@ -201,7 +211,6 @@ jobs:
         if: steps.pr.outputs.found == 'true'
         env:
           APP_TOKEN: ${{ steps.app.outputs.token }}
-          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
           TIER=$(jq -r .tier "$RUNNER_TEMP/tier.json")
           if [ "$TIER" = "low" ]; then
@@ -216,13 +225,14 @@ jobs:
             -f target_url="$RUN_URL" > /dev/null
           echo "risk-tier: $STATE ($DESC)"
 
-      # Anything above broke after "Mark pending": say so on the commit. If even this
-      # fails, the pending status stays, which blocks the merge too.
+      # Anything above broke after the token: say so on the commit. If even this fails,
+      # the pending status stays, which blocks the merge too. If the token itself failed,
+      # nothing can be posted, and an older status on this commit stands: the runbook
+      # says to check the App's setup when a run fails at that step.
       - name: Post an error
         if: failure() && steps.app.outputs.token != ''
         env:
           APP_TOKEN: ${{ steps.app.outputs.token }}
-          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
           GH_TOKEN="$APP_TOKEN" gh api -X POST "repos/$GH_REPO/statuses/$HEAD_SHA" \
             -f state=error -f context=risk-tier -f description="The risk tier gate failed; see the run" \
