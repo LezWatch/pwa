@@ -146,3 +146,5 @@ read. The diff against `production` can be bigger than what you read, but
 everything else in it already passed this gate when it merged into the release
 branch. That only holds while every `release/**` branch is protected by the
 ruleset.
+
+<!-- Throwaway: proves a docs-only PR is low risk. Do not merge. -->
