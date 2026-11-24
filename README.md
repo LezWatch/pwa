@@ -273,6 +273,12 @@ in-memory SQLite, so a test run in the container fails instead of wiping it.
 
 Tests never call lezwatchtv.com or lwtv.local.
 
+### Front-end tests
+
+The on-device store in `resources/js/store/` is TypeScript, tested with Vitest
+against `fake-indexeddb`. Run `npm test` and `npm run typecheck` on the host
+(Node 22), not in a container.
+
 `tests/Unit/AppCatalogueContractTest.php` holds the sample files in
 `tests/Fixtures/app/` to the [catalogue API contract](docs/api/app-catalogue-v1.md).
 If you change one, change the other.

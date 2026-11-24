@@ -46,6 +46,8 @@ vendor/bin/pint --test
 php artisan test
 python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 source ~/.nvm/nvm.sh && nvm use 22
+npm run typecheck
+npm test
 npm run build:assets
 ```
 
@@ -79,7 +81,7 @@ before going on. Never revert, stash or delete it yourself.
 
 Invoke `rad-shipshape-pr --phase ship`, with one `--include <path>` per file from step 3 that
 the human said to keep (usually none). In the PR body's Notes, say that Pint, PHPUnit, the gate
-tests and the Vite build passed locally on this commit.
+tests, the TypeScript typecheck, the Vitest tests and the Vite build passed locally on this commit.
 
 ### 5. Report
 
