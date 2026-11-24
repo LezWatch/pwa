@@ -1,4 +1,4 @@
-import { getDb, writeTx, type RatingRecord, type WatchedRecord } from './db';
+import { readDb, writeTx, type RatingRecord, type WatchedRecord } from './db';
 
 export type RatingValue = 1 | 2 | 3 | 4 | 5;
 export type Rating = { showId: number; value: RatingValue; ratedAt: number };
@@ -23,23 +23,24 @@ function checkValue(value: number): void {
 }
 
 export async function isWatched(showId: number): Promise<boolean> {
-    const db = await getDb();
-    return (await db.get('watched', showId)) !== undefined;
+    return readDb(
+        () => false,
+        async (db) => (await db.get('watched', showId)) !== undefined,
+    );
 }
 
 export async function listWatched(): Promise<number[]> {
-    const db = await getDb();
-    return (await db.getAllKeys('watched')).sort((a, b) => a - b);
+    const keys = await readDb(() => [], (db) => db.getAllKeys('watched'));
+    return keys.sort((a, b) => a - b);
 }
 
 export async function getRating(showId: number): Promise<RatingValue | null> {
-    const db = await getDb();
-    return (await db.get('ratings', showId))?.value ?? null;
+    const record = await readDb(() => undefined, (db) => db.get('ratings', showId));
+    return record?.value ?? null;
 }
 
 export async function listRatings(): Promise<Rating[]> {
-    const db = await getDb();
-    const all: RatingRecord[] = await db.getAll('ratings');
+    const all: RatingRecord[] = await readDb(() => [], (db) => db.getAll('ratings'));
     return all.sort((a, b) => a.showId - b.showId);
 }
 
@@ -70,6 +71,6 @@ export async function setRating(showId: number, value: RatingValue): Promise<voi
 
 /** Full watched records, for the backup (keeps watchedAt). Internal. */
 export async function listWatchedRecords(): Promise<WatchedRecord[]> {
-    const db = await getDb();
-    return (await db.getAll('watched')).sort((a, b) => a.showId - b.showId);
+    const all = await readDb((): WatchedRecord[] => [], (db) => db.getAll('watched'));
+    return all.sort((a, b) => a.showId - b.showId);
 }

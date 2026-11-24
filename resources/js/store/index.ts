@@ -31,3 +31,4 @@ export { storageStatus, requestPersistence, type StorageStatus } from './status'
 export { exportBackup } from './backup';
 export { BackupError, type BackupPlaintext } from './backup-format';
 export { importBackup } from './import';
+export { wipeEverything, onWiped, isDeletePending } from './wipe';

@@ -1,4 +1,4 @@
-import { getDb, writeTx } from './db';
+import { readDb, writeTx } from './db';
 
 export interface Settings {
     schema: 1;
@@ -104,8 +104,7 @@ export function validateSettings(value: unknown): Settings {
 }
 
 export async function getSettings(): Promise<Settings> {
-    const db = await getDb();
-    const stored = await db.get('settings', KEY);
+    const stored = await readDb(() => undefined, (db) => db.get('settings', KEY));
     return validateSettings({ ...defaultSettings(), ...stored });
 }
 

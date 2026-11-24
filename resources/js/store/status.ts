@@ -1,4 +1,4 @@
-import { getDb } from './db';
+import { readDb } from './db';
 
 export interface StorageStatus {
     persisted: boolean;
@@ -14,8 +14,8 @@ function isInstalled(): boolean {
 }
 
 export async function storageStatus(): Promise<StorageStatus> {
-    const db = await getDb();
-    const settings = await db.get('settings', 'current'); // raw record: getSettings() would return defaults
+    // Raw record: getSettings() would return defaults. Empty while a delete is pending.
+    const settings = await readDb(() => undefined, (db) => db.get('settings', 'current'));
     const persisted =
         typeof navigator.storage?.persisted === 'function' ? await navigator.storage.persisted() : false;
     return { persisted, installed: isInstalled(), isEmpty: settings === undefined };

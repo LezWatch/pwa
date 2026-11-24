@@ -41,7 +41,11 @@ export class StoreWipedError extends Error {
 
 let wiped = false;
 let dbPromise: Promise<IDBPDatabase<LwtvSchema>> | null = null;
+// The connection behind dbPromise once it has opened, so closeDb() can close it synchronously.
+let openDb: IDBPDatabase<LwtvSchema> | null = null;
 let pendingDelete: Promise<void> | null = null;
+// Bumped when this tab starts a wipe, so a write that began before it can tell.
+let wipeGeneration = 0;
 
 /** Once set, every write from this tab is refused. */
 export function markWiped(): void {
@@ -54,8 +58,19 @@ export function assertWritable(): void {
     }
 }
 
+/** Sets the delete that writes wait for. It clears itself when it settles. */
 export function setPendingDelete(p: Promise<void> | null): void {
     pendingDelete = p;
+    p?.finally(() => {
+        if (pendingDelete === p) {
+            pendingDelete = null;
+        }
+    }).catch(() => {});
+}
+
+/** Called by the wipe before it clears anything: writes already under way are refused. */
+export function noteWipeStarted(): void {
+    wipeGeneration++;
 }
 
 export function isDeletePendingNow(): boolean {
@@ -71,6 +86,7 @@ export async function whenDeleteSettles(): Promise<void> {
 
 export function getDb(): Promise<IDBPDatabase<LwtvSchema>> {
     if (!dbPromise) {
+        openDb = null; // any earlier connection was closed or terminated
         const opening = openDB<LwtvSchema>(DB_NAME, DB_VERSION, {
             upgrade(db) {
                 db.createObjectStore('settings');
@@ -78,10 +94,9 @@ export function getDb(): Promise<IDBPDatabase<LwtvSchema>> {
                 db.createObjectStore('ratings', { keyPath: 'showId' });
                 db.createObjectStore('identity');
             },
-            // Another tab (or the wipe) wants to delete or upgrade the database.
+            // Another tab (or its wipe) wants to delete or upgrade the database.
             blocking() {
-                markWiped();
-                closeDb();
+                handleWiped();
             },
             // The browser closed the connection under us; open afresh next time.
             terminated() {
@@ -91,13 +106,34 @@ export function getDb(): Promise<IDBPDatabase<LwtvSchema>> {
             },
         });
         dbPromise = opening;
-        opening.catch(() => {
-            if (dbPromise === opening) {
-                dbPromise = null;
-            }
-        });
+        opening.then(
+            (db) => {
+                if (dbPromise === opening) {
+                    openDb = db;
+                }
+            },
+            () => {
+                if (dbPromise === opening) {
+                    dbPromise = null;
+                }
+            },
+        );
+        // Any tab that touches the data hears another tab's wipe.
+        listen();
     }
     return dbPromise;
+}
+
+/**
+ * Runs `read` against the database, or returns `fallback()` without opening it
+ * while a delete is pending or after this tab was wiped: the data is gone, and
+ * an open would only queue behind the delete.
+ */
+export async function readDb<R>(fallback: () => R, read: (db: IDBPDatabase<LwtvSchema>) => Promise<R>): Promise<R> {
+    if (wiped || pendingDelete) return fallback();
+    const db = await getDb();
+    if (wiped || pendingDelete) return fallback();
+    return read(db);
 }
 
 /**
@@ -110,9 +146,20 @@ export async function writeTx<Names extends StoreNames<LwtvSchema>[], R>(
     work: (tx: IDBPTransaction<LwtvSchema, Names, 'readwrite'>) => Promise<R>,
 ): Promise<R> {
     assertWritable();
+    const generation = wipeGeneration;
     await whenDeleteSettles();
     const db = await getDb();
-    const tx = db.transaction(storeNames, 'readwrite');
+    // A wipe may have landed while we waited: from another tab, or one this tab started.
+    assertWritable();
+    if (wipeGeneration !== generation) {
+        throw new StoreWipedError();
+    }
+    let tx: IDBPTransaction<LwtvSchema, Names, 'readwrite'>;
+    try {
+        tx = db.transaction(storeNames, 'readwrite');
+    } catch (error) {
+        throw wipedOr(error);
+    }
     try {
         const result = await work(tx);
         await tx.done;
@@ -124,14 +171,20 @@ export async function writeTx<Names extends StoreNames<LwtvSchema>[], R>(
             // Already finished or aborted.
         }
         await tx.done.catch(() => {});
-        throw error;
+        throw wipedOr(error);
     }
+}
+
+/** A database error caused by this tab's connection closing for a wipe reads as StoreWipedError. */
+function wipedOr(error: unknown): unknown {
+    return wiped && error instanceof DOMException ? new StoreWipedError() : error;
 }
 
 export type StoreMessage = { type: 'wipe' } | { type: 'replaced' };
 
 let bc: BroadcastChannel | null = null;
 const replacedCallbacks = new Set<() => void>();
+const wipedCallbacks = new Set<() => void>();
 let listening = false;
 
 /** One channel per module instance, created on first use. */
@@ -149,6 +202,23 @@ function dispatch(event: MessageEvent<StoreMessage>): void {
         case 'replaced':
             for (const cb of [...replacedCallbacks]) cb();
             break;
+        case 'wipe':
+            handleWiped();
+            break;
+    }
+}
+
+/**
+ * Another tab wiped the data. Both its message and the delete's versionchange
+ * land here; the callbacks run only the first time, since the tab is expected
+ * to reload once told.
+ */
+function handleWiped(): void {
+    const first = !wiped;
+    markWiped();
+    closeDb();
+    if (first) {
+        for (const cb of [...wipedCallbacks]) cb();
     }
 }
 
@@ -168,10 +238,27 @@ export function onReplaced(cb: () => void): () => void {
     };
 }
 
+/** Called in this tab after another tab wiped the data. Returns an unsubscribe. */
+export function onWiped(cb: () => void): () => void {
+    listen();
+    wipedCallbacks.add(cb);
+    return () => {
+        wipedCallbacks.delete(cb);
+    };
+}
+
+/** Closes this tab's connection: at once if it is open, else as soon as it opens. */
 export function closeDb(): void {
     const opening = dbPromise;
+    const open = openDb;
     dbPromise = null;
-    opening?.then((db) => db.close(), () => {});
+    openDb = null;
+    if (open) {
+        // Synchronous, so a delete requested right after doesn't see us as a blocker.
+        open.close();
+    } else {
+        opening?.then((db) => db.close(), () => {});
+    }
 }
 
 /** Test helper: forget the wiped flag and any pending delete. Not part of the public API. */
@@ -182,4 +269,5 @@ export function __resetForTests(): void {
     bc = null;
     listening = false;
     replacedCallbacks.clear();
+    wipedCallbacks.clear();
 }

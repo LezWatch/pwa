@@ -1,4 +1,4 @@
-import { getDb, writeTx, type IdentityRecord } from './db';
+import { readDb, writeTx, type IdentityRecord } from './db';
 import { toBase64Url } from './base64url';
 
 export type Identity = Omit<IdentityRecord, 'id'>;
@@ -44,8 +44,7 @@ function toIdentity({ id: _id, ...identity }: IdentityRecord): Identity {
 
 /** The stored key, or null. Never creates one. */
 export async function getIdentity(): Promise<Identity | null> {
-    const db = await getDb();
-    const record = await db.get('identity', KEY);
+    const record = await readDb(() => undefined, (db) => db.get('identity', KEY));
     return record ? toIdentity(record) : null;
 }
 
