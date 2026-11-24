@@ -98,6 +98,14 @@ async function validate(plain: unknown): Promise<Validated> {
     return { settings, watched, ratings, identity: await validateIdentity(plain.identity) };
 }
 
+/** True when importing `incoming` would drop or change the key the device already has. */
+function replacesKey(
+    device: { publicKeyRaw: string } | null,
+    incoming: { publicKeyRaw: string } | null,
+): boolean {
+    return device !== null && (incoming === null || incoming.publicKeyRaw !== device.publicKeyRaw);
+}
+
 /**
  * Replaces everything on this device with the backup, all or nothing.
  * Everything is checked before the one write transaction starts.
@@ -111,16 +119,18 @@ export async function importBackup(
 
     const data = await validate(await decryptBackup(await file.text(), passphrase));
 
-    const device = await getIdentity();
-    if (
-        device &&
-        (data.identity === null || data.identity.publicKeyRaw !== device.publicKeyRaw) &&
-        opts?.allowKeyChange !== true
-    ) {
+    const allow = opts?.allowKeyChange === true;
+    // Early check, so the common case fails before a readwrite transaction opens.
+    if (!allow && replacesKey(await getIdentity(), data.identity)) {
         throw new BackupError('key-change-needs-confirmation');
     }
 
     await writeTx(['settings', 'watched', 'ratings', 'identity'], async (tx) => {
+        // Re-check inside the transaction: another tab may have stored a key meanwhile.
+        const current = await tx.objectStore('identity').get('primary');
+        if (!allow && replacesKey(current ?? null, data.identity)) {
+            throw new BackupError('key-change-needs-confirmation');
+        }
         await Promise.all([
             tx.objectStore('settings').clear(),
             tx.objectStore('watched').clear(),

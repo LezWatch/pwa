@@ -1,5 +1,6 @@
 import { test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { closeDb, __resetForTests } from './db';
+import * as identityModule from './identity';
 import { __resetKeySupportForTests, getIdentity, getOrCreateIdentity } from './identity';
 import { setWatched, setRating, listWatched, listRatings } from './shows';
 import { getSettings, saveSettings } from './settings';
@@ -214,4 +215,16 @@ test('another tab is told once after a successful import, and not after a failed
     await new Promise((r) => setTimeout(r, 100));
     expect(cb).toHaveBeenCalledTimes(1);
     off();
+});
+
+test('a key that appears after the early check still needs confirmation', async () => {
+    await getOrCreateIdentity();
+    await seedDevice();
+    const before = (await getIdentity())!.publicKeyRaw;
+    const file = await fileOf(base(await keyFixture()));
+    // The early check sees no key; the store actually holds one.
+    vi.spyOn(identityModule, 'getIdentity').mockResolvedValueOnce(null);
+    await rejectsWith(importBackup(file, PASS), 'key-change-needs-confirmation');
+    await expectDeviceUntouched();
+    expect((await getIdentity())!.publicKeyRaw).toBe(before);
 });
