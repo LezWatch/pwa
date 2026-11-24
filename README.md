@@ -241,17 +241,22 @@ LWTV_API_VERIFY_TLS=true
 
 ## Tests
 
+Run the tests on the host, never inside the app container:
+
 ```bash
 php artisan test
 ```
 
-Or inside the PHP 8.4 container:
-
-```bash
-docker compose exec app php artisan test
-```
+Inside the container, the `.env` values are real environment variables and
+can beat `phpunit.xml`. That once pointed the tests at the live SQLite file and
+wiped the catalogue. `tests/TestCase.php` now refuses any database but
+in-memory SQLite, so a test run in the container fails instead of wiping it.
 
 Tests never call lezwatchtv.com or lwtv.local.
+
+`tests/Unit/AppCatalogueContractTest.php` holds the sample files in
+`tests/Fixtures/app/` to the [catalogue API contract](docs/api/app-catalogue-v1.md).
+If you change one, change the other.
 
 ## Pull request checks
 
