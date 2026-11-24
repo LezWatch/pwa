@@ -28,3 +28,5 @@ export {
     type Identity,
 } from './identity';
 export { storageStatus, requestPersistence, type StorageStatus } from './status';
+export { exportBackup } from './backup';
+export { BackupError, type BackupPlaintext } from './backup-format';

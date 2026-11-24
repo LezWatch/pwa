@@ -1,4 +1,4 @@
-import { getDb, writeTx, type RatingRecord } from './db';
+import { getDb, writeTx, type RatingRecord, type WatchedRecord } from './db';
 
 export type RatingValue = 1 | 2 | 3 | 4 | 5;
 export type Rating = { showId: number; value: RatingValue; ratedAt: number };
@@ -66,4 +66,10 @@ export async function setRating(showId: number, value: RatingValue): Promise<voi
         }
         await tx.objectStore('ratings').put({ showId, value, ratedAt: Date.now() });
     });
+}
+
+/** Full watched records, for the backup (keeps watchedAt). Internal. */
+export async function listWatchedRecords(): Promise<WatchedRecord[]> {
+    const db = await getDb();
+    return (await db.getAll('watched')).sort((a, b) => a.showId - b.showId);
 }
