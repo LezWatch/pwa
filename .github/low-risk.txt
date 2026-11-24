@@ -1,0 +1,45 @@
+# Low-risk allowlist. A PR is low risk only when EVERY changed file matches a pattern
+# here and none matches .github/risk-tiers.txt (which always wins).
+#
+# Anything on neither list is high risk. That's deliberate: the rest of app/ (catalogue,
+# models, controllers), factories, a new folder or a new script nobody thought to list
+# gets reviewed instead of slipping through. Add to this list on purpose, in its own PR,
+# which will itself be high risk.
+#
+# Read at the PR's BASE commit. fnmatch patterns: `*` also crosses `/`, so folders are
+# listed by folder (resources/views/*), never by extension (*.php).
+
+# --- Docs -------------------------------------------------------------------------------
+# Plans, specs, runbooks and design screens. Shell scripts and agent files in here are
+# still high (see risk-tiers.txt).
+docs/*
+*.md
+LICENSE
+
+# --- Views and front end ----------------------------------------------------------------
+# Blade templates, CSS and browser JS. The service worker is still high.
+resources/views/*
+resources/css/*
+resources/js/*
+
+# --- Static files -----------------------------------------------------------------------
+# Images can't run; SVG can, and is on the high-risk list.
+public/favicon.ico
+public/robots.txt
+*.png
+*.jpg
+*.gif
+*.webp
+
+# --- Tests ------------------------------------------------------------------------------
+# tests/TestCase.php and tests/Concerns/* are on the high-risk list: they decide which
+# database the tests touch.
+tests/*
+
+# --- Dependencies -----------------------------------------------------------------------
+# Version bumps are low. risk_tier.py separately flags any NEW package in a lockfile and
+# any manifest change beyond version numbers (scripts, overrides, new deps, git sources).
+composer.json
+composer.lock
+package.json
+package-lock.json

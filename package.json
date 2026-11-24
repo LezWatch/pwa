@@ -1,0 +1,27 @@
+{
+    "name": "lwtv-pwa",
+    "version": "0.0.1",
+    "description": "LezWatch.TV PWA.",
+    "$schema": "https://www.schemastore.org/package.json",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "docker compose up -d --build",
+        "start": "docker compose up -d",
+        "restart": "docker compose restart",
+        "stop": "docker compose down",
+        "installer": "npm install && composer install",
+        "build:assets": "vite build",
+        "dev": "vite"
+    },
+    "devDependencies": {
+        "@tailwindcss/vite": "^4.0.0",
+        "concurrently": "^10.0.3",
+        "laravel-vite-plugin": "^3.1",
+        "tailwindcss": "^4.0.0",
+        "vite": "^8.0.0"
+    },
+    "optionalDependencies": {
+        "@laravel/multiplex": "^0.4.1"
+    }
+}

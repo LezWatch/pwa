@@ -1,0 +1,370 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-11-23T18:00:00Z",
+  "data_version": "sample-catalogue-1",
+  "terms": {
+    "tropes": {
+      "101": {
+        "slug": "law-enforcement",
+        "name": "Law enforcement"
+      },
+      "102": {
+        "slug": "period-drama",
+        "name": "Period drama"
+      },
+      "103": {
+        "slug": "sex-workers",
+        "name": "Sex workers"
+      },
+      "104": {
+        "slug": "conversion-therapy",
+        "name": "Conversion therapy"
+      },
+      "105": {
+        "slug": "coming-out",
+        "name": "Coming out stories"
+      },
+      "106": {
+        "slug": "addiction",
+        "name": "Addiction and recovery"
+      },
+      "107": {
+        "slug": "dead-queers",
+        "name": "Queers died"
+      }
+    },
+    "genres": {
+      "301": {
+        "slug": "drama",
+        "name": "Drama"
+      }
+    },
+    "formats": {
+      "401": {
+        "slug": "tv-show",
+        "name": "Series"
+      }
+    },
+    "countries": {
+      "501": {
+        "slug": "usa",
+        "name": "USA"
+      }
+    },
+    "stations": {
+      "601": {
+        "slug": "max",
+        "name": "Max"
+      },
+      "602": {
+        "slug": "prime-video",
+        "name": "Prime Video"
+      },
+      "603": {
+        "slug": "netflix",
+        "name": "Netflix"
+      },
+      "604": {
+        "slug": "hulu",
+        "name": "Hulu"
+      }
+    }
+  },
+  "shows": [
+    {
+      "id": 90001,
+      "slug": "the-lantern-years",
+      "title": "The Lantern Years",
+      "url": "https://lezwatchtv.com/show/the-lantern-years/",
+      "year_start": 2019,
+      "year_end": 2023,
+      "on_air": false,
+      "formats": [
+        401
+      ],
+      "countries": [
+        501
+      ],
+      "stations": [
+        601
+      ],
+      "genres": [
+        301
+      ],
+      "tropes": [
+        102
+      ],
+      "queer_death": false,
+      "trigger": "low",
+      "star": "gold",
+      "lwtv_score": 84,
+      "viewer_score": 4.2,
+      "viewer_votes": 312,
+      "tmdb_id": 210001,
+      "similar": [
+        90002
+      ]
+    },
+    {
+      "id": 90002,
+      "slug": "diamond-girls",
+      "title": "Diamond Girls",
+      "url": "https://lezwatchtv.com/show/diamond-girls/",
+      "year_start": 2022,
+      "year_end": null,
+      "on_air": true,
+      "formats": [
+        401
+      ],
+      "countries": [
+        501
+      ],
+      "stations": [
+        602
+      ],
+      "genres": [
+        301
+      ],
+      "tropes": [
+        102
+      ],
+      "queer_death": false,
+      "trigger": null,
+      "star": "silver",
+      "lwtv_score": 71,
+      "viewer_score": null,
+      "viewer_votes": null,
+      "tmdb_id": 210002,
+      "similar": [
+        90001
+      ]
+    },
+    {
+      "id": 90003,
+      "slug": "precinct-nine",
+      "title": "Precinct Nine",
+      "url": "https://lezwatchtv.com/show/precinct-nine/",
+      "year_start": 2021,
+      "year_end": null,
+      "on_air": true,
+      "formats": [
+        401
+      ],
+      "countries": [
+        501
+      ],
+      "stations": [
+        603
+      ],
+      "genres": [
+        301
+      ],
+      "tropes": [
+        101
+      ],
+      "queer_death": false,
+      "trigger": "medium",
+      "star": "bronze",
+      "lwtv_score": 63,
+      "viewer_score": null,
+      "viewer_votes": null,
+      "tmdb_id": 210003,
+      "similar": []
+    },
+    {
+      "id": 90004,
+      "slug": "harbor-street",
+      "title": "Harbor Street",
+      "url": "https://lezwatchtv.com/show/harbor-street/",
+      "year_start": 2020,
+      "year_end": 2021,
+      "on_air": false,
+      "formats": [
+        401
+      ],
+      "countries": [
+        501
+      ],
+      "stations": [
+        603
+      ],
+      "genres": [
+        301
+      ],
+      "tropes": [
+        101
+      ],
+      "queer_death": false,
+      "trigger": null,
+      "star": null,
+      "lwtv_score": null,
+      "viewer_score": null,
+      "viewer_votes": null,
+      "tmdb_id": 210004,
+      "similar": []
+    },
+    {
+      "id": 90005,
+      "slug": "quiet-coast",
+      "title": "Quiet Coast",
+      "url": "https://lezwatchtv.com/show/quiet-coast/",
+      "year_start": 2018,
+      "year_end": 2020,
+      "on_air": false,
+      "formats": [
+        401
+      ],
+      "countries": [
+        501
+      ],
+      "stations": [
+        603
+      ],
+      "genres": [
+        301
+      ],
+      "tropes": [
+        101,
+        107
+      ],
+      "queer_death": true,
+      "trigger": null,
+      "star": "gold",
+      "lwtv_score": 77,
+      "viewer_score": null,
+      "viewer_votes": null,
+      "tmdb_id": 210005,
+      "similar": []
+    },
+    {
+      "id": 90006,
+      "slug": "velvet-hours",
+      "title": "Velvet Hours",
+      "url": "https://lezwatchtv.com/show/velvet-hours/",
+      "year_start": 2017,
+      "year_end": 2019,
+      "on_air": false,
+      "formats": [
+        401
+      ],
+      "countries": [
+        501
+      ],
+      "stations": [
+        601
+      ],
+      "genres": [
+        301
+      ],
+      "tropes": [
+        102,
+        103
+      ],
+      "queer_death": false,
+      "trigger": "low",
+      "star": "silver",
+      "lwtv_score": 68,
+      "viewer_score": null,
+      "viewer_votes": null,
+      "tmdb_id": 210006,
+      "similar": []
+    },
+    {
+      "id": 90007,
+      "slug": "northbound",
+      "title": "Northbound",
+      "url": "https://lezwatchtv.com/show/northbound/",
+      "year_start": 2020,
+      "year_end": null,
+      "on_air": true,
+      "formats": [
+        401
+      ],
+      "countries": [
+        501
+      ],
+      "stations": [
+        602
+      ],
+      "genres": [
+        301
+      ],
+      "tropes": [
+        101
+      ],
+      "queer_death": false,
+      "trigger": "high",
+      "star": "bronze",
+      "lwtv_score": 59,
+      "viewer_score": null,
+      "viewer_votes": null,
+      "tmdb_id": 210007,
+      "similar": []
+    },
+    {
+      "id": 90008,
+      "slug": "second-chances",
+      "title": "Second Chances",
+      "url": "https://lezwatchtv.com/show/second-chances/",
+      "year_start": 2021,
+      "year_end": null,
+      "on_air": true,
+      "formats": [
+        401
+      ],
+      "countries": [
+        501
+      ],
+      "stations": [
+        604
+      ],
+      "genres": [
+        301
+      ],
+      "tropes": [
+        101,
+        105
+      ],
+      "queer_death": false,
+      "trigger": null,
+      "star": "gold",
+      "lwtv_score": 80,
+      "viewer_score": null,
+      "viewer_votes": null,
+      "tmdb_id": 210008,
+      "similar": []
+    },
+    {
+      "id": 90009,
+      "slug": "cross-fade",
+      "title": "Cross Fade",
+      "url": "https://lezwatchtv.com/show/cross-fade/",
+      "year_start": 2023,
+      "year_end": null,
+      "on_air": true,
+      "formats": [
+        401
+      ],
+      "countries": [
+        501
+      ],
+      "stations": [
+        603
+      ],
+      "genres": [
+        301
+      ],
+      "tropes": [
+        102
+      ],
+      "queer_death": false,
+      "trigger": null,
+      "star": "anti",
+      "lwtv_score": 41,
+      "viewer_score": null,
+      "viewer_votes": null,
+      "tmdb_id": 210009,
+      "similar": []
+    }
+  ]
+}

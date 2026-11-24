@@ -1,0 +1,30 @@
+version: 2
+
+# Every update targets production, the default branch, so its PRs are compared against
+# what's live. They go through the same gates as any other PR; a plain version bump is
+# low risk and passes without a label.
+updates:
+  - package-ecosystem: "composer"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "production"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "production"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "production"
+
+  # The Dockerfile's base images.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "production"
