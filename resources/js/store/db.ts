@@ -128,6 +128,46 @@ export async function writeTx<Names extends StoreNames<LwtvSchema>[], R>(
     }
 }
 
+export type StoreMessage = { type: 'wipe' } | { type: 'replaced' };
+
+let bc: BroadcastChannel | null = null;
+const replacedCallbacks = new Set<() => void>();
+let listening = false;
+
+/** One channel per module instance, created on first use. */
+export function channel(): BroadcastChannel {
+    if (!bc) {
+        bc = new BroadcastChannel('lwtv-store');
+        // Don't keep Node (tests) alive; a no-op in browsers.
+        (bc as unknown as { unref?: () => void }).unref?.();
+    }
+    return bc;
+}
+
+function dispatch(event: MessageEvent<StoreMessage>): void {
+    switch (event.data?.type) {
+        case 'replaced':
+            for (const cb of [...replacedCallbacks]) cb();
+            break;
+    }
+}
+
+function listen(): void {
+    if (!listening) {
+        channel().addEventListener('message', dispatch as EventListener);
+        listening = true;
+    }
+}
+
+/** Called in other tabs after an import replaced the data. Returns an unsubscribe. */
+export function onReplaced(cb: () => void): () => void {
+    listen();
+    replacedCallbacks.add(cb);
+    return () => {
+        replacedCallbacks.delete(cb);
+    };
+}
+
 export function closeDb(): void {
     const opening = dbPromise;
     dbPromise = null;
@@ -138,4 +178,8 @@ export function closeDb(): void {
 export function __resetForTests(): void {
     wiped = false;
     pendingDelete = null;
+    bc?.close();
+    bc = null;
+    listening = false;
+    replacedCallbacks.clear();
 }

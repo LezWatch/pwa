@@ -8,7 +8,7 @@ export {
     SettingsError,
     type Settings,
 } from './settings';
-export { StoreWipedError } from './db';
+export { StoreWipedError, onReplaced } from './db';
 export {
     isWatched,
     setWatched,
@@ -30,3 +30,4 @@ export {
 export { storageStatus, requestPersistence, type StorageStatus } from './status';
 export { exportBackup } from './backup';
 export { BackupError, type BackupPlaintext } from './backup-format';
+export { importBackup } from './import';
