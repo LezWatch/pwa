@@ -103,9 +103,13 @@ export function validateSettings(value: unknown): Settings {
     };
 }
 
-export async function getSettings(): Promise<Settings> {
-    const stored = await readDb(() => undefined, (db) => db.get('settings', KEY));
+/** The stored record over the defaults, validated. Internal: the backup reads it too. */
+export function withDefaults(stored: Partial<Settings> | undefined): Settings {
     return validateSettings({ ...defaultSettings(), ...stored });
+}
+
+export async function getSettings(): Promise<Settings> {
+    return withDefaults(await readDb(() => undefined, (db) => db.get('settings', KEY)));
 }
 
 /**
@@ -114,8 +118,7 @@ export async function getSettings(): Promise<Settings> {
  */
 async function update(patch: (current: Settings) => Partial<Settings>): Promise<Settings> {
     return writeTx(['settings'], async (tx) => {
-        const stored = await tx.store.get(KEY);
-        const current = validateSettings({ ...defaultSettings(), ...stored });
+        const current = withDefaults(await tx.store.get(KEY));
         const next = validateSettings({ ...current, ...patch(current) });
         await tx.store.put(next, KEY);
         return next;

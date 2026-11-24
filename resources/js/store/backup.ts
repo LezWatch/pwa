@@ -1,7 +1,6 @@
 import { BackupError, encryptBackup, type BackupPlaintext } from './backup-format';
-import { getIdentity } from './identity';
-import { getSettings } from './settings';
-import { listRatings, listWatchedRecords } from './shows';
+import { readDb, type IdentityRecord, type RatingRecord, type WatchedRecord } from './db';
+import { withDefaults, type Settings } from './settings';
 
 const MIN_PASSPHRASE_CHARACTERS = 8;
 
@@ -15,13 +14,36 @@ export async function exportBackup(passphrase: string): Promise<{ blob: Blob; fi
         throw new BackupError('passphrase-too-short');
     }
 
-    const identity = await getIdentity();
+    // One readonly transaction, so a write from another tab can't land between
+    // the reads and leave, say, a rating for a show the file says is unwatched.
+    const snapshot = await readDb(
+        () => ({ settings: undefined, watched: [], ratings: [], identity: undefined }),
+        async (db): Promise<{
+            settings: Settings | undefined;
+            watched: WatchedRecord[];
+            ratings: RatingRecord[];
+            identity: IdentityRecord | undefined;
+        }> => {
+            const tx = db.transaction(['settings', 'watched', 'ratings', 'identity'], 'readonly');
+            const [settings, watched, ratings, identity] = await Promise.all([
+                tx.objectStore('settings').get('current'),
+                tx.objectStore('watched').getAll(),
+                tx.objectStore('ratings').getAll(),
+                tx.objectStore('identity').get('primary'),
+                tx.done,
+            ]);
+            return { settings, watched, ratings, identity };
+        },
+    );
+
+    // Exporting the keys is async crypto, so it runs after the transaction.
+    const identity = snapshot.identity ?? null;
     const plain: BackupPlaintext = {
         schema: 1,
         exportedAt: Date.now(),
-        settings: await getSettings(),
-        watched: await listWatchedRecords(),
-        ratings: await listRatings(),
+        settings: withDefaults(snapshot.settings),
+        watched: snapshot.watched.sort((a, b) => a.showId - b.showId),
+        ratings: snapshot.ratings.sort((a, b) => a.showId - b.showId),
         identity: identity && {
             alg: 'Ed25519',
             privateJwk: await crypto.subtle.exportKey('jwk', identity.privateKey),

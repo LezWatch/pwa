@@ -1,5 +1,5 @@
 import { test, expect, vi, beforeEach, afterEach } from 'vitest';
-import { closeDb, getDb, __resetForTests } from './db';
+import { closeDb, getDb, writeTx, __resetForTests } from './db';
 import { __resetKeySupportForTests, getOrCreateIdentity } from './identity';
 import { setWatched, setRating } from './shows';
 import { saveSettings } from './settings';
@@ -12,6 +12,7 @@ import {
     type BackupPlaintext,
 } from './backup-format';
 import { exportBackup } from './backup';
+import { importBackup } from './import';
 
 const plain: BackupPlaintext = {
     schema: 1,
@@ -207,4 +208,31 @@ test('exportBackup with no identity says null and creates none', async () => {
     const out = (await decryptBackup(await blob.text(), 'correct horse')) as BackupPlaintext;
     expect(out.identity).toBeNull();
     expect(await (await getDb()).count('identity')).toBe(0);
+});
+
+test('exportBackup reads one snapshot: a write landing mid-export cannot make an unrestorable file', async () => {
+    await setWatched(1, true);
+
+    // Another tab watches and rates show 7 just as the export reads the watched list.
+    const getAll = IDBObjectStore.prototype.getAll;
+    let write: Promise<void> | null = null;
+    vi.spyOn(IDBObjectStore.prototype, 'getAll').mockImplementation(function (this: IDBObjectStore, ...args) {
+        if (this.name === 'watched' && !write) {
+            write = writeTx(['watched', 'ratings'], async (tx) => {
+                await tx.objectStore('watched').put({ showId: 7, watchedAt: 1 });
+                await tx.objectStore('ratings').put({ showId: 7, value: 4, ratedAt: 1 });
+            });
+        }
+        return getAll.apply(this, args);
+    });
+
+    const { blob } = await exportBackup('correct horse');
+    expect(write).not.toBeNull();
+    await write;
+    vi.restoreAllMocks();
+
+    const out = (await decryptBackup(await blob.text(), 'correct horse')) as BackupPlaintext;
+    const watched = new Set(out.watched.map((w) => w.showId));
+    for (const r of out.ratings) expect(watched).toContain(r.showId);
+    await expect(importBackup(blob, 'correct horse')).resolves.toBeUndefined();
 });
