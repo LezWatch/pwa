@@ -106,7 +106,8 @@ and of when the PR's latest commit was pushed. Your label counts only if you
 added it after that push. A PR can't edit those records.
 
 **A new push starts over.** A label from before the latest push doesn't count,
-so any new commit needs a new review. The gate takes the stale label off; add
+so any new commit needs a new review. The same goes for changing the PR's base
+branch, since that changes the diff. The gate takes the stale label off; add
 it again once you've read the new changes. Removing the label withdraws the
 review.
 
@@ -209,15 +210,12 @@ The script hit an error (bad lockfile JSON, a git problem). It fails closed, so
 the PR is high. Read the error in the "Classify" step; if the PR is fine, review
 it and add the label as usual.
 
-**I retargeted a PR from `release/*` to `production` and the checks re-ran.**
-That's on purpose. The diff is recomputed against the new base. **Your review
-still counts if there has been no push since, even though the diff against
-`production` can now hold more than you read.** Release branches take direct
-pushes, so those extra commits may never have been reviewed. After a retarget,
-read the full diff, then remove `human-reviewed` and add it again. The usual
-flow (the release branch's own PR into `production`) doesn't have this problem:
-every push to the release branch is a push to that PR, so it resets the
-review.
+**I retargeted a PR and my `human-reviewed` label vanished.**
+That's on purpose. Changing a PR's base changes its diff: a PR moved from
+`release/*` to `production` can now include commits pushed straight to the
+release branch that you never read. So a review from before the base change
+doesn't count, and the gate takes the label off. Read the new diff, then add
+the label again.
 
 ## 7. Rebuild and recovery
 

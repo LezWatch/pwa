@@ -35,6 +35,11 @@ def _label(event, at, login="Ipstenu", kind="User", name="human-reviewed", id_=N
     }
 
 
+def _base_change(at, id_=1):
+    return {"id": id_, "event": "base_ref_changed", "created_at": at,
+            "actor": {"login": "Ipstenu", "type": "User"}}
+
+
 def _decide(events, activity, head=HEAD, reviewers=REVIEWERS):
     return hr.decide(events, activity, head, reviewers)
 
@@ -161,6 +166,35 @@ class TestDecide(unittest.TestCase):
         self.assertTrue(result["approved"], result)
 
 
+    def test_label_from_before_a_base_change_does_not_count(self):
+        # Retargeted after the review: the diff against the new base wasn't read.
+        events = [_label("labeled", "2026-11-23T10:05:00Z"), _base_change("2026-11-23T10:10:00Z")]
+        result = _decide(events, [_push(HEAD, "2026-11-23T10:00:00Z")])
+        self.assertFalse(result["approved"], result)
+        self.assertIn("base branch changed", result["reason"])
+
+    def test_label_after_a_base_change_approves(self):
+        events = [_base_change("2026-11-23T10:10:00Z"), _label("labeled", "2026-11-23T10:15:00Z")]
+        result = _decide(events, [_push(HEAD, "2026-11-23T10:00:00Z")])
+        self.assertTrue(result["approved"], result)
+
+    def test_label_in_the_same_second_as_a_base_change_does_not_count(self):
+        events = [_label("labeled", "2026-11-23T10:10:00Z"), _base_change("2026-11-23T10:10:00Z")]
+        result = _decide(events, [_push(HEAD, "2026-11-23T10:00:00Z")])
+        self.assertFalse(result["approved"], result)
+
+    def test_base_change_before_the_push_changes_nothing(self):
+        events = [_base_change("2026-11-23T09:00:00Z"), _label("labeled", "2026-11-23T10:05:00Z")]
+        result = _decide(events, [_push(HEAD, "2026-11-23T10:00:00Z")])
+        self.assertTrue(result["approved"], result)
+
+    def test_malformed_base_change_raises(self):
+        # main() turns this into "not reviewed".
+        with self.assertRaises(Exception):
+            _decide([{"event": "base_ref_changed"}, _label("labeled", "2026-11-23T10:05:00Z")],
+                    [_push(HEAD, "2026-11-23T10:00:00Z")])
+
+
 class TestRemoveLabel(unittest.TestCase):
     """remove_label: the label is on the PR but doesn't count, so the gate takes it off.
 
@@ -209,6 +243,11 @@ class TestRemoveLabel(unittest.TestCase):
         result = _decide([_label("labeled", "2026-11-23T10:05:00Z")], [_push(HEAD, "2026-11-23T10:00:00Z")],
                          reviewers="")
         self.assertFalse(result["remove_label"])
+
+
+    def test_label_from_before_a_base_change_is_removed(self):
+        events = [_label("labeled", "2026-11-23T10:05:00Z"), _base_change("2026-11-23T10:10:00Z")]
+        self.assertTrue(_decide(events, [_push(HEAD, "2026-11-23T10:00:00Z")])["remove_label"])
 
 
 class TestMain(unittest.TestCase):
