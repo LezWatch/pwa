@@ -69,6 +69,11 @@ class AppCatalogueContractTest extends TestCase
             'similar to itself' => [fn ($d) => self::setShow($d, 'similar', [90001]), 'lists the show itself'],
             'year_end before year_start' => [fn ($d) => self::setShow($d, 'year_end', 2001), 'is before year_start'],
             'encoded entity' => [fn ($d) => self::setShow($d, 'title', 'Lantern&#8217;s Years'), 'HTML entity'],
+            'unused term' => [function ($d) {
+                $d['terms']['genres']['399'] = ['slug' => 'western', 'name' => 'Western'];
+
+                return $d;
+            }, 'terms.genres.399: no show uses it'],
             'html in text' => [fn ($d) => self::setShow($d, 'title', '<em>Lantern</em>'), 'has HTML'],
         ];
     }

@@ -135,6 +135,22 @@ final class AppCatalogueContract
         foreach ($shows as $i => $show) {
             $this->show("shows[{$i}]", $show, $terms, $ids, $deathTropes);
         }
+
+        // Dictionaries hold the terms shows use and no others, so the phone
+        // never offers a trope (A2, B2) that can't filter anything.
+        foreach (self::TERM_FIELDS as $field) {
+            $used = [];
+            foreach ($shows as $show) {
+                foreach (is_array($show[$field] ?? null) ? $show[$field] : [] as $id) {
+                    $used[(string) $id] = true;
+                }
+            }
+            foreach (array_keys(is_array($terms[$field] ?? null) ? $terms[$field] : []) as $id) {
+                if (! isset($used[(string) $id])) {
+                    $this->fail("terms.{$field}.{$id}", 'no show uses it; leave unused terms out');
+                }
+            }
+        }
     }
 
     /**

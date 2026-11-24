@@ -111,7 +111,7 @@ is a shortcut, so the client doesn't need to know that slug.
 
 ### Term dictionaries
 
-Each holds every term used by at least one show in the response, as `{ "slug", "name" }`.
+Each holds every term used by at least one show in the response, and no others, as `{ "slug", "name" }`.
 The phone's trope list (A2, B2) is built from `terms.tropes`, sorted by `name`. Stars and
 trigger levels are fixed lists in the app, not dictionaries, because the screens hard-code
 their order and wording.
