@@ -1,7 +1,7 @@
 # LWTV app catalogue API, schema version 1
 
-**Status:** draft, for Mika's review
-**Date:** 2026-11-23
+**Status:** agreed (see [LezWatch/pwa#35](https://github.com/LezWatch/pwa/issues/35))
+**Date:** 2026-11-23, agreed 2026-11-24
 **Implements:** [LezWatch/lwtv-underscores#755](https://github.com/LezWatch/lwtv-underscores/issues/755) (server) for the screens in `docs/design/screens/`
 **Samples:** `tests/Fixtures/app/catalogue.json`, `tests/Fixtures/app/availability.json`
 
@@ -98,7 +98,7 @@ TMDB on its own schedule, and it's the bigger file.
 | `on_air` | bool | `lezshows_on_air` | |
 | `formats`, `countries`, `stations`, `genres`, `tropes` | int[] | `lez_formats`, `lez_country`, `lez_stations`, `lez_genres`, `lez_tropes` | Term ids into `terms`. Empty array when none. |
 | `queer_death` | bool | `dead-queers` trope | Drives "Hide shows where a queer character dies". |
-| `trigger` | `"low"`, `"medium"`, `"high"` or null | `lez_triggers` slug | `null` means **no warning listed**, which is not the same as "safe". The trigger filter never hides a `null` show. |
+| `trigger` | `"low"`, `"med"`, `"high"` or null | `lez_triggers` slug, else `lezshows_triggerwarning` meta, run through `Trigger_Warning::normalize()` | The same lookup the show page uses (`Content_Warning`), so legacy `on` and `medium` arrive as `high` and `med`. normalize()'s `"none"` is sent as `null`. `null` means **no warning listed**, which is not the same as "safe". The trigger filter never hides a `null` show. |
 | `star` | `"gold"`, `"silver"`, `"bronze"`, `"anti"` or null | `lez_stars` slug | `anti` is the app's Black star: hidden unless the user turns it on. |
 | `lwtv_score` | int 0–100 or null | `lezshows_the_score`, rounded | `null` shows as "N/A". |
 | `viewer_score` | number 1–5 or null | viewer score meta (lwtv-underscores#757) | `null` until that exists, and below the minimum vote count. |
@@ -173,21 +173,26 @@ The sample files hold the design's made-up shows: the four on the list screens, 
 that the default filters hide (a queer death, an excluded trope, a High warning, a service the
 user doesn't have), and one anti-star show.
 
-## Calls I made (Mika to check)
+## Decisions
 
-1. **Two routes, no parameters, all regions in one file.** Simplest to cache. If the
-   availability file turns out too big, the fallback is one file per region at
-   `/availability/{region}`, still requested only by the PWA server.
-2. **`queer_death` comes from the `dead-queers` trope,** not `lezshows_dead_count > 0`. The
-   trope is the editorial call; the count includes characters who died off-screen or in a
-   later spin-off. Say if you'd rather use the count.
-3. **`trigger: null` stands for "No warning listed".** There is no separate "none" value,
-   because LezWatch.TV doesn't record "checked, nothing found".
-4. **Scores are rounded to whole numbers,** as the screens show them.
-5. **`rent` and `buy` never count** toward "shows you can stream".
-6. **`services` and each region's list are curated** on the WordPress side (the `lez_watch_urls`
-   ways-to-watch terms look like the natural home). Who maintains that is still the open
-   question from #755.
+Agreed on [LezWatch/pwa#35](https://github.com/LezWatch/pwa/issues/35), 2026-11-24.
+
+1. **Two routes, no parameters, all regions in one file.** Accepted. If the availability
+   file turns out too big, the fallback is one file per region at `/availability/{region}`,
+   still requested only by the PWA server.
+2. **`queer_death` comes from the `dead-queers` trope,** not `lezshows_dead_count > 0`.
+   Accepted. The trope is the editorial call; the count includes characters who died
+   off-screen or in a later spin-off.
+3. **`trigger: null` stands for "No warning listed".** Accepted. There is no separate "none"
+   value, because LezWatch.TV doesn't record "checked, nothing found".
+   - Changed in review: the levels are WordPress's canonical slugs, `low`, `med` and `high`
+     (the draft said `medium`), read the way the show page reads them. See `trigger` above.
+4. **Scores are rounded to whole numbers,** as the screens show them. Accepted.
+   `lezshows_the_score` is stored as a float, clamped to 0–100.
+5. **`rent` and `buy` never count** toward "shows you can stream". Accepted.
+6. **`services` and each region's list are curated** on the WordPress side, probably as
+   `lez_watch_urls` terms. Accepted. Who maintains that list is still open on
+   [LezWatch/lwtv-underscores#755](https://github.com/LezWatch/lwtv-underscores/issues/755).
 
 ## Not in version 1
 
