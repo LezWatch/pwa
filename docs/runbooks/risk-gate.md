@@ -2,7 +2,9 @@
 
 Every pull request into `production` or a `release/*` branch gets a `risk-tier`
 check. Low-risk PRs pass on their own. High-risk PRs stay red until Mika reads
-them and adds the `human-reviewed` label. This page is for doing that, or fixing
+them and adds the `human-reviewed` label. It's **required** only to merge into
+`production`. On release branches it's advice, and direct pushes are allowed.
+Everything still meets the gate in the release's PR into `production`. This page is for doing that, or fixing
 it, without having to think too hard.
 
 **Jump to:**
@@ -104,7 +106,8 @@ and of when the PR's latest commit was pushed. Your label counts only if you
 added it after that push. A PR can't edit those records.
 
 **A new push starts over.** A label from before the latest push doesn't count,
-so any new commit needs a new review. The gate takes the stale label off; add
+so any new commit needs a new review. The same goes for changing the PR's base
+branch, since that changes the diff. The gate takes the stale label off; add
 it again once you've read the new changes. Removing the label withdraws the
 review.
 
@@ -141,18 +144,21 @@ into it, Dependabot's included.
 2. **Labels** `human-reviewed` and `risk: high`.
 3. **Merge `release/0.0.1` into `production`**, so the gate is on the default
    branch.
-4. **The ruleset**, on `release/**` and `production`: no deletion, no
-   force-push, changes through a PR (merge commit only), and required checks
-   `PHPUnit`, `Docker build`, `security`, `scan-pr / osv-scan` and
-   `risk-tier`. No bypass actors.
-   * Leave **"Do not require status checks on creation"** unticked (API:
-     `do_not_enforce_on_create: false`). Otherwise someone could push a new
-     `release/x` branch full of unreviewed commits, and the gate's retarget
-     logic assumes everything on a release branch was reviewed.
-   * The whole ruleset is written down in
-     [`risk-gate-ruleset.json`](risk-gate-ruleset.json), so it can be set with
-     one command (see [§7](#7-rebuild-and-recovery), "Put the ruleset back").
-     If you change the ruleset in the UI, change that file to match, in a PR.
+4. **Two rulesets.** Neither has bypass actors.
+   * **`protected-branches`** (ID `27944135`), on the default branch
+     (`production`): no deletion, no force-push, changes through a PR (merge
+     commit only), and required checks `PHPUnit`, `Docker build`, `security`,
+     `scan-pr / osv-scan` and `risk-tier`. Written down in
+     [`risk-gate-ruleset.json`](risk-gate-ruleset.json).
+   * **`release-branches`** (ID `28002576`), on `release/**`: no deletion and
+     no force-push, nothing else. Direct pushes work, and no checks are
+     required. Written down in
+     [`risk-gate-release-ruleset.json`](risk-gate-release-ruleset.json).
+   * Each one can be set with one command (see [§7](#7-rebuild-and-recovery),
+     "Put a ruleset back"). If you change one in the UI, change its file to
+     match, in a PR.
+   * Deleting an old release branch means first taking it out of
+     `release-branches` (or pausing the ruleset), then putting it back.
 
 ## 6. Troubleshooting by symptom
 
@@ -204,13 +210,12 @@ The script hit an error (bad lockfile JSON, a git problem). It fails closed, so
 the PR is high. Read the error in the "Classify" step; if the PR is fine, review
 it and add the label as usual.
 
-**I retargeted a PR from `release/*` to `production` and the checks re-ran.**
-That's on purpose. The diff is recomputed against the new base. Your review
-still counts if there has been no push since, because it covers the commit you
-read. The diff against `production` can be bigger than what you read, but
-everything else in it already passed this gate when it merged into the release
-branch. That only holds while every `release/**` branch is protected by the
-ruleset.
+**I retargeted a PR and my `human-reviewed` label vanished.**
+That's on purpose. Changing a PR's base changes its diff: a PR moved from
+`release/*` to `production` can now include commits pushed straight to the
+release branch that you never read. So a review from before the base change
+doesn't count, and the gate takes the label off. Read the new diff, then add
+the label again.
 
 ## 7. Rebuild and recovery
 
@@ -235,6 +240,8 @@ gate is blocked too. A repo admin can always edit the ruleset, so take
    gh api repos/LezWatch/pwa/rulesets --jq '.[] | {id, name}'
    ```
 
+   `risk-tier` is only in `protected-branches`.
+
 2. Drop `risk-tier`, keeping every other rule:
 
    ```bash
@@ -244,21 +251,26 @@ gate is blocked too. A repo admin can always edit the ruleset, so take
 3. While it's out, high-risk PRs aren't gated. Merge only the fix, then put
    the ruleset back (below) straight away.
 
-### Put the ruleset back, or recreate it
+### Put a ruleset back, or recreate it
 
-* **Update the existing ruleset:**
+The file is [`risk-gate-ruleset.json`](risk-gate-ruleset.json) for
+`protected-branches`, or
+[`risk-gate-release-ruleset.json`](risk-gate-release-ruleset.json) for
+`release-branches`.
+
+* **Update an existing ruleset:**
 
   ```bash
-  gh api -X PUT repos/LezWatch/pwa/rulesets/<id> --input docs/runbooks/risk-gate-ruleset.json
+  gh api -X PUT repos/LezWatch/pwa/rulesets/<id> --input docs/runbooks/<file>
   ```
 
-* **Recreate it after it was deleted:**
+* **Recreate one after it was deleted:**
 
   ```bash
-  gh api -X POST repos/LezWatch/pwa/rulesets --input docs/runbooks/risk-gate-ruleset.json
+  gh api -X POST repos/LezWatch/pwa/rulesets --input docs/runbooks/<file>
   ```
 
-Check it: `gh api repos/LezWatch/pwa/rulesets/<id> --jq '.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context'`
+Check `protected-branches`: `gh api repos/LezWatch/pwa/rulesets/<id> --jq '.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context'`
 should list all five checks.
 
 ### Check the gate works

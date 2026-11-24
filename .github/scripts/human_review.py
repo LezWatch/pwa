@@ -11,10 +11,11 @@ simply add it again. It is false whenever the answer is uncertain.
 
 Approved means: the latest `labeled human-reviewed` event by a User whose login is in
 HUMAN_REVIEWERS came after the last time the head SHA was pushed to the PR's branch,
-and nobody removed the label after that.
+and after the PR's base branch last changed (a retarget changes the diff, so the old
+review no longer covers it), and nobody removed the label after that.
 
 Both inputs come from GitHub's own records, which a PR can't write:
-  --events    GET /repos/{repo}/issues/{pr}/events  (who added or removed a label, when)
+  --events    GET /repos/{repo}/issues/{pr}/events  (labels added or removed, base changes)
   --activity  GET /repos/{repo}/activity?ref=...    (when each push landed on the branch)
 A workflow in the PR can add the label with its own token, but the event then names
 github-actions[bot], not a listed human. A commit status or comment would not work: a
@@ -62,11 +63,20 @@ def label_events(events):
     return sorted(found, key=lambda e: (_time(e["created_at"]), e["id"]))
 
 
+def last_base_change(events):
+    """When the PR's base branch last changed, or None if it never did."""
+    if not isinstance(events, list):
+        raise TypeError("events is not a list")
+    times = [_time(e["created_at"]) for e in events if e.get("event") == "base_ref_changed"]
+    return max(times) if times else None
+
+
 def decide(events, activity, head_sha, reviewers_text):
     # Parse both inputs first, so malformed data always raises instead of hiding
     # behind an earlier "not approved".
     pushed = last_push(activity, head_sha)
     ordered = label_events(events)
+    based = last_base_change(events)
     reviewers = parse_reviewers(reviewers_text)
     if not reviewers:
         return {"approved": False, "remove_label": False,
@@ -74,17 +84,21 @@ def decide(events, activity, head_sha, reviewers_text):
     if pushed is None:
         return {"approved": False, "remove_label": False,
                 "reason": f"Couldn't tell when {head_sha[:7]} was pushed: it isn't the branch's newest recorded push."}
+    # A review must be newer than both the push and the latest base change.
+    since, since_text = pushed, f"{head_sha[:7]} was pushed"
+    if based is not None and based >= pushed:
+        since, since_text = based, "the base branch changed"
     label_on = bool(ordered) and ordered[-1]["event"] == "labeled"
     approval = None
     for index, event in enumerate(ordered):
         actor = event.get("actor") or {}
         if (event["event"] == "labeled" and actor.get("type") == "User"
                 and str(actor.get("login", "")).lower() in reviewers
-                and _time(event["created_at"]) > pushed):
+                and _time(event["created_at"]) > since):
             approval = index
     if approval is None:
         return {"approved": False, "remove_label": label_on,
-                "reason": f"No {LABEL} label from a listed reviewer since {head_sha[:7]} was pushed."}
+                "reason": f"No {LABEL} label from a listed reviewer since {since_text}."}
     if any(e["event"] == "unlabeled" for e in ordered[approval + 1:]):
         return {"approved": False, "remove_label": label_on,
                 "reason": f"The {LABEL} label was removed after the review."}
