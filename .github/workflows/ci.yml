@@ -66,8 +66,11 @@ jobs:
       - name: npm lockfile matches manifest
         run: npm ci
 
-      - run: npm run typecheck
-      - run: npm test
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Front-end tests
+        run: npm test
 
       # The gate's own logic: a regression here would otherwise merge with every check
       # green. These run the PR's own code, so they live in this job, which runs PR code

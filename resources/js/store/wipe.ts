@@ -18,7 +18,11 @@ const WEB_STORAGE_PREFIX = 'lwtv:';
 
 let running: Promise<void> | null = null;
 
-/** True while the database delete waits on another tab. Reads show the empty state meanwhile. */
+/**
+ * True from the start of a wipe, through its clear step, until the database
+ * delete finishes (which may wait on another tab). Reads show the empty state
+ * meanwhile.
+ */
 export function isDeletePending(): boolean {
     return isDeletePendingNow();
 }

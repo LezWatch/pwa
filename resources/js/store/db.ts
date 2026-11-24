@@ -34,7 +34,7 @@ export interface LwtvSchema extends DBSchema {
 
 export class StoreWipedError extends Error {
     constructor() {
-        super('This tab no longer owns the data: it was wiped or replaced elsewhere.');
+        super('The store was wiped; reload.');
         this.name = 'StoreWipedError';
     }
 }
@@ -228,9 +228,10 @@ function dispatch(event: MessageEvent<StoreMessage>): void {
 }
 
 /**
- * Another tab wiped the data. Both its message and the delete's versionchange
- * land here; the callbacks run only the first time, since the tab is expected
- * to reload once told.
+ * This tab must reload: another tab wiped the data (its message and the
+ * delete's versionchange both land here), or a newer version of the app needs
+ * the database (versionchange). The callbacks run only the first time, since
+ * the tab is expected to reload once told.
  */
 function handleWiped(): void {
     const first = !wiped;
@@ -257,7 +258,11 @@ export function onReplaced(cb: () => void): () => void {
     };
 }
 
-/** Called in this tab after another tab wiped the data. Returns an unsubscribe. */
+/**
+ * Called once when this tab must reload: another tab wiped the data, or a newer
+ * version of the app needs the database. Its writes are refused from then on.
+ * Returns an unsubscribe.
+ */
 export function onWiped(cb: () => void): () => void {
     listen();
     wipedCallbacks.add(cb);
