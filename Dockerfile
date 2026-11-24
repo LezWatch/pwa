@@ -32,6 +32,6 @@ ENTRYPOINT ["lwtv-entrypoint"]
 CMD ["php-fpm"]
 
 # --- nginx in front of PHP-FPM ------------------------------------------------
-FROM nginx:1.28-alpine AS web
+FROM nginx:1.29-alpine AS web
 COPY docker/nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY public /var/www/html/public

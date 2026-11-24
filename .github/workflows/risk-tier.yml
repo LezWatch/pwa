@@ -133,8 +133,8 @@ jobs:
             --low-patterns "$GITHUB_WORKSPACE/base/.github/low-risk.txt" > "$RUNNER_TEMP/tier.json"
           cat "$RUNNER_TEMP/tier.json"
 
-      # Who added the label and when (issue events), and when the head commit landed on
-      # the branch (repository activity). Both are GitHub's own records; a PR can't write
+      # Who added the label and when, and when the base last changed (issue events), and
+      # when the head commit landed on the branch (repository activity). Both are GitHub's own records; a PR can't write
       # them.
       - name: Check for a human review
         if: steps.pr.outputs.found == 'true'
