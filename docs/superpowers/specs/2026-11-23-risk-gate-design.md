@@ -171,3 +171,25 @@ or post its own `human-review` status from any workflow it edits. Mika chose the
 - Still open, and bigger: the gate tells people apart by GitHub login. Agents that run
   under Mika's own login can add the label themselves, and it counts. Closing that
   means giving agents their own account or App, kept out of `HUMAN_REVIEWERS`.
+
+## Amendment 2 (2026-11-23, after the proof PRs)
+
+The `pull_request_target` gate never ran. Since December 2025, GitHub takes
+`pull_request_target` workflows from the **default** branch, and `production` didn't
+have it, so the required check could never report. The proof PRs also showed that a
+PR's own job named `risk-tier` satisfies a required check matched by name alone (#29
+showed as mergeable). In addition, public repos block `pull_request_target` by default
+from 2026-12-02. Mika chose a `workflow_run` gate instead, as lwtv-underscores already
+uses for its deploys:
+
+- `risk-tier-trigger.yml` (`pull_request`) does nothing; finishing starts
+  `risk-tier.yml` (`workflow_run`), which runs from the default branch, reads the PR as
+  data, and uses `risk_tier.py` and `human_review.py` as before.
+- The verdict is a `risk-tier` commit status posted as a dedicated GitHub App. The App's
+  key lives in an environment only `production` can use. The ruleset requires
+  `risk-tier` from that App only (`integration_id`), which closes the copycat gap.
+- The lists are read from the default branch, so a list change takes effect when it
+  reaches `production`.
+- The gate only runs once it is on `production`, so the ruleset's `risk-tier` check
+  goes back on after `release/0.0.1` merges into `production`.
+- Still open: agents running under Mika's own login can add the label themselves.
