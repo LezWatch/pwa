@@ -12,7 +12,8 @@ it, without having to think too hard.
 * [Approve a high-risk PR](#3-approve-a-high-risk-pr) ·
 * [Move a path between lists](#4-move-a-path-between-lists) ·
 * [One-time setup](#5-one-time-setup) ·
-* [Troubleshooting](#6-troubleshooting-by-symptom)
+* [Troubleshooting](#6-troubleshooting-by-symptom) ·
+* [Rebuild and recovery](#7-rebuild-and-recovery)
 
 ---
 
@@ -141,8 +142,9 @@ into it, Dependabot's included.
      (Metadata: read is added automatically).
    * Where can it be installed: **Only on this account**.
    * Create it. Note the **App ID** (a number) and the **Client ID**.
-   * Generate a private key (it downloads a `.pem`). Save it in 1Password as
-     LWTV PWA risk gate App key.
+   * Generate a private key (it downloads a `.pem`). Make one 1Password item,
+     **LWTV PWA risk gate App**, holding all three things a rebuild needs: the
+     App ID, the Client ID, and the `.pem` as an attached file.
    * Install App → LezWatch → **Only select repositories** → `pwa`.
 4. **The environment.** Repo Settings → Environments → New environment →
    `risk-gate`.
@@ -165,6 +167,10 @@ into it, Dependabot's included.
    * The UI may only offer the App as a source once it has posted a
      `risk-tier` status. If it isn't listed, open one test PR first, or set it
      with the API.
+   * The whole ruleset is written down in
+     [`risk-gate-ruleset.json`](risk-gate-ruleset.json), so the API route is one
+     command (see [§7](#7-rebuild-and-recovery), "Put the ruleset back"). If you
+     change the ruleset in the UI, change that file to match, in a PR.
 
 ## 6. Troubleshooting by symptom
 
@@ -223,3 +229,124 @@ read. The diff against `production` can be bigger than what you read, but
 everything else in it already passed this gate when it merged into the release
 branch. That only holds while every `release/**` branch is protected by the
 ruleset.
+
+## 7. Rebuild and recovery
+
+For when a piece of the gate is lost or broken. Every value you need is in
+the 1Password item **LWTV PWA risk gate App** (App ID, Client ID, `.pem`). In
+the commands below, `<op ref>` is that item's `.pem` file reference
+(1Password → the file → Copy Secret Reference). Each fix changes settings, so
+do it yourself or tell an agent "go ahead" for that one step.
+
+### Every PR is blocked and nothing can merge
+
+The ruleset wants `risk-tier` from the App, and the App isn't posting. With
+no bypass actors, the PR that would fix the gate is blocked too. A repo admin
+can always edit the ruleset, so take `risk-tier` out, fix the gate, then put
+it back.
+
+1. Find the ruleset's ID (it's `27944135` unless it was recreated):
+
+   ```bash
+   gh api repos/LezWatch/pwa/rulesets --jq '.[] | {id, name}'
+   ```
+
+2. Drop `risk-tier`, keeping every other rule:
+
+   ```bash
+   jq '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) |= map(select(.context != "risk-tier"))' docs/runbooks/risk-gate-ruleset.json | gh api -X PUT repos/LezWatch/pwa/rulesets/<id> --input -
+   ```
+
+3. While it's out, high-risk PRs aren't gated. Merge only the fix, then put
+   the ruleset back (below) straight away.
+
+### Put the ruleset back, or recreate it
+
+The file has `"integration_id": 0` where the App ID goes. Fill it in on the
+way to the API.
+
+* **Update the existing ruleset:**
+
+  ```bash
+  jq --argjson app <App ID> '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[] | select(.context == "risk-tier") | .integration_id) = $app' docs/runbooks/risk-gate-ruleset.json | gh api -X PUT repos/LezWatch/pwa/rulesets/<id> --input -
+  ```
+
+* **Recreate it after it was deleted:** the same command, ending in
+  `gh api -X POST repos/LezWatch/pwa/rulesets --input -` instead.
+
+Check it: `gh api repos/LezWatch/pwa/rulesets/<id> --jq '.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks'`
+should list all five checks, `risk-tier` with the App ID.
+
+### Rotate the key (leaked, or lost)
+
+An App can have several keys at once, so swap them without downtime:
+
+1. App settings (LezWatch org → Settings → Developer settings → GitHub Apps
+   → LezWatch risk gate) → **Private keys** → **Generate a private key**.
+2. Attach the new `.pem` to the 1Password item, replacing the old one, and
+   delete the download.
+3. Put it in the environment, straight from 1Password, so it never sits on
+   disk:
+
+   ```bash
+   op read "<op ref>" | gh secret set RISK_GATE_APP_PRIVATE_KEY --env risk-gate --repo LezWatch/pwa
+   ```
+
+4. Re-run the gate on an open PR (below) and check it posts.
+5. Back in **Private keys**, delete the old one.
+
+**If the key leaked,** delete the old key first, before step 1. The gate then
+errors until the new secret is in, which is safe: it fails closed.
+
+### The environment was deleted
+
+The secret and variable went with it. Recreate all of it from 1Password:
+
+```bash
+gh api -X PUT repos/LezWatch/pwa/environments/risk-gate --input - <<'JSON'
+{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
+JSON
+```
+
+```bash
+gh api -X POST repos/LezWatch/pwa/environments/risk-gate/deployment-branch-policies -f name=production -f type=branch
+```
+
+```bash
+gh variable set RISK_GATE_APP_CLIENT_ID --env risk-gate --repo LezWatch/pwa --body "<Client ID>"
+```
+
+```bash
+op read "<op ref>" | gh secret set RISK_GATE_APP_PRIVATE_KEY --env risk-gate --repo LezWatch/pwa
+```
+
+Check that only `production` can use it:
+`gh api repos/LezWatch/pwa/environments/risk-gate/deployment-branch-policies --jq '.branch_policies[] | {name, type}'`
+should print exactly one line, `production` and `branch`.
+
+### The App was deleted
+
+A new App gets a **new App ID and Client ID**, so it touches everything:
+
+1. Make it again: [§5](#5-one-time-setup), step 3. Update the 1Password item
+   with the new App ID, Client ID and `.pem`.
+2. Replace the environment's variable and secret (the two `gh variable` /
+   `gh secret` commands above).
+3. The ruleset still names the **old** App ID, so every PR is blocked. Point
+   it at the new one: "Put the ruleset back" above, with the new App ID.
+
+### Check a rebuild worked
+
+1. Re-run the gate: on any open PR into `production` or `release/*`, open the
+   **Risk tier trigger** run and choose **Re-run all jobs**. Then watch the
+   **Risk tier** run on `production` in the Actions tab.
+2. Confirm the status came from the App, not from GitHub Actions:
+
+   ```bash
+   gh api repos/LezWatch/pwa/commits/<PR head SHA>/statuses --jq '.[] | select(.context == "risk-tier") | {state, by: .creator.login}' | head -1
+   ```
+
+   `by` should be the App's bot name (`lezwatch-risk-gate[bot]` for an App
+   named "LezWatch risk gate"), never `github-actions[bot]`.
+3. If **Risk tier** didn't start after the re-run, add and remove any label
+   other than `human-reviewed` on the PR. That fires the trigger too.
