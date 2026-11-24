@@ -20,10 +20,15 @@ let support: Promise<'ok' | 'unsupported'> | null = null;
 
 /** Tries to make a throwaway key once per page and remembers the answer. */
 export function keySupport(): Promise<'ok' | 'unsupported'> {
-    support ??= generate().then(
-        () => 'ok' as const,
-        () => 'unsupported' as const,
-    );
+    support ??= (async () => {
+        try {
+            await generate();
+            return 'ok' as const;
+        } catch {
+            // Includes a missing crypto.subtle, which throws before any promise exists.
+            return 'unsupported' as const;
+        }
+    })();
     return support;
 }
 

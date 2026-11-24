@@ -17,6 +17,7 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
 });
 
 test('getIdentity is null on an empty database and creates nothing', async () => {
@@ -91,4 +92,10 @@ test('base64url round-trips without padding and rejects bad input', () => {
     expect(() => fromBase64Url('ab+/')).toThrow();
     expect(() => fromBase64Url('a')).toThrow();
     expect(() => fromBase64Url('ab=c')).toThrow();
+});
+
+test('a missing crypto.subtle is unsupported, not a thrown TypeError', async () => {
+    vi.stubGlobal('crypto', {});
+    expect(await keySupport()).toBe('unsupported');
+    await expect(getOrCreateIdentity()).rejects.toBeInstanceOf(KeyUnsupportedError);
 });
