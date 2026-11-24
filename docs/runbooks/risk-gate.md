@@ -13,7 +13,8 @@ it, without having to think too hard.
 * [Move a path between lists](#4-move-a-path-between-lists) ·
 * [One-time setup](#5-one-time-setup) ·
 * [Troubleshooting](#6-troubleshooting-by-symptom) ·
-* [Rebuild and recovery](#7-rebuild-and-recovery)
+* [Rebuild and recovery](#7-rebuild-and-recovery) ·
+* [Later: a GitHub App](#8-later-post-the-verdict-as-a-github-app)
 
 ---
 
@@ -53,11 +54,14 @@ Two workflows:
   change to the gate only takes effect once it reaches `production`.
 
 The verdict is a `risk-tier` **commit status** on the PR's head commit, posted
-as the **risk-gate GitHub App**. The ruleset requires `risk-tier` *from that
-App only*. A PR could add its own job or status called `risk-tier`, but it
-would come from GitHub Actions, not the App, so it doesn't count. The App's key
-is stored in the `risk-gate` environment, which only `production` can use, so
-a workflow in a PR can't reach it.
+with the run's own `GITHUB_TOKEN`. The ruleset requires `risk-tier` by **name**.
+
+> **Known gap: a PR can fake `risk-tier`.** A PR that adds its own job or status
+> called `risk-tier` can make itself green, because GitHub matches required
+> checks by name. Doing that means editing `.github/workflows/`, which shows up
+> plainly in the diff, and every PR gets read before it merges anyway. Posting
+> the verdict as a GitHub App closes this gap. It's set aside for now:
+> [§8](#8-later-post-the-verdict-as-a-github-app) has the steps.
 
 Each run judges exactly the commit the trigger ran on. It marks that commit
 `pending` first, then posts `success` or `failure`, or `error` if it breaks.
@@ -69,7 +73,8 @@ Where it can't post at all, an older status on that commit stands:
 * **The trigger didn't run.** The PR deleted or broke `risk-tier-trigger.yml`,
   or dropped `unlabeled` from its triggers so removing your label starts
   nothing. That edit is in `.github/`, so it's high risk and you'll have read it.
-* **The App token failed.** Check the environment's variable and secret.
+* **The run couldn't post.** For example, GitHub gave it a read-only token (see
+  the Dependabot entry in [§6](#6-troubleshooting-by-symptom)).
 
 A new commit always starts with no status, so it's blocked until the gate
 judges it.
@@ -124,7 +129,7 @@ extensions (`*.php`), or you'll allow far more than you meant.
 
 ## 5. One-time setup
 
-Each step changes repo or org settings.
+Each step changes repo settings.
 
 **The gate only runs once it's on `production`.** Until `release/0.0.1` merges
 into `production`, no PR gets a `risk-tier` status. `production` also has no
@@ -134,43 +139,20 @@ into it, Dependabot's included.
 1. **Repository variable** `HUMAN_REVIEWERS` = `ipstenu` (Settings → Secrets
    and variables → Actions → Variables; comma-separated for more than one).
 2. **Labels** `human-reviewed` and `risk: high`.
-3. **The GitHub App.** In the LezWatch org: Settings → Developer settings →
-   GitHub Apps → New GitHub App.
-   * Name: `LezWatch risk gate` (any name). Homepage: the repo URL.
-   * Webhook: untick **Active**.
-   * Repository permissions: **Commit statuses: Read and write**. Nothing else
-     (Metadata: read is added automatically).
-   * Where can it be installed: **Only on this account**.
-   * Create it. Note the **App ID** (a number) and the **Client ID**.
-   * Generate a private key (it downloads a `.pem`). Make one 1Password item,
-     **LWTV PWA risk gate App**, holding all three things a rebuild needs: the
-     App ID, the Client ID, and the `.pem` as an attached file.
-   * Install App → LezWatch → **Only select repositories** → `pwa`.
-4. **The environment.** Repo Settings → Environments → New environment →
-   `risk-gate`.
-   * Deployment branches and tags: **Selected branches and tags** → add a rule,
-     ref type **Branch** (not Tag), name `production`. Nothing else.
-   * Environment variable `RISK_GATE_APP_CLIENT_ID` = the Client ID.
-   * Environment secret `RISK_GATE_APP_PRIVATE_KEY` = the whole `.pem` file.
-   * Then delete the downloaded `.pem`.
-5. **Merge `release/0.0.1` into `production`**, so the gate is on the default
+3. **Merge `release/0.0.1` into `production`**, so the gate is on the default
    branch.
-6. **The ruleset**, on `release/**` and `production`: no deletion, no
+4. **The ruleset**, on `release/**` and `production`: no deletion, no
    force-push, changes through a PR (merge commit only), and required checks
-   `PHPUnit`, `Docker build`, `security`, `scan-pr / osv-scan`, plus
-   `risk-tier` **from the risk-gate App** (in the UI, pick the App as the
-   source; in the API, `integration_id` = the App ID). No bypass actors.
+   `PHPUnit`, `Docker build`, `security`, `scan-pr / osv-scan` and
+   `risk-tier`. No bypass actors.
    * Leave **"Do not require status checks on creation"** unticked (API:
      `do_not_enforce_on_create: false`). Otherwise someone could push a new
      `release/x` branch full of unreviewed commits, and the gate's retarget
      logic assumes everything on a release branch was reviewed.
-   * The UI may only offer the App as a source once it has posted a
-     `risk-tier` status. If it isn't listed, open one test PR first, or set it
-     with the API.
    * The whole ruleset is written down in
-     [`risk-gate-ruleset.json`](risk-gate-ruleset.json), so the API route is one
-     command (see [§7](#7-rebuild-and-recovery), "Put the ruleset back"). If you
-     change the ruleset in the UI, change that file to match, in a PR.
+     [`risk-gate-ruleset.json`](risk-gate-ruleset.json), so it can be set with
+     one command (see [§7](#7-rebuild-and-recovery), "Put the ruleset back").
+     If you change the ruleset in the UI, change that file to match, in a PR.
 
 ## 6. Troubleshooting by symptom
 
@@ -181,8 +163,8 @@ push or a label change. If it stays:
 * Did "Risk tier trigger" run on the PR? If the PR deleted or broke
   `risk-tier-trigger.yml`, the gate never starts. That's a red flag in itself.
 * Did "Risk tier" run (Actions tab, on `production`)? If it ran but posted
-  nothing, its log says why: PR from a fork, PR not into a gated branch, or the
-  App token failed (check the environment's variable and secret).
+  nothing, its log says why: PR from a fork, PR not into a gated branch, or a
+  `403` posting the status (a read-only token).
 
 **`risk-tier` is red and the `human-reviewed` label is on.**
 The gate hasn't re-run since your label, or it ran and the label didn't count.
@@ -200,10 +182,10 @@ nobody counts), or there was a push just before your label. Fix the variable if
 needed, then add the label again.
 
 **A Dependabot PR sits at "Expected — Waiting for status to be reported".**
-Check the "Risk tier" run on `production`. If it failed at "Token for the
-risk-gate App", GitHub didn't give the environment's secret to a run that
-Dependabot started. The ruleset has no bypass, so it can't be merged as is:
-close it and open the same bump yourself, from a branch in this repo.
+Check the "Risk tier" run on `production`. If "Mark pending" failed with a
+`403`, GitHub gave a run that Dependabot started a read-only token, so it
+couldn't post. The ruleset has no bypass, so it can't be merged as is: close
+it and open the same bump yourself, from a branch in this repo.
 
 **`risk-tier` says "No open PR into a gated branch has this commit as its head".**
 The branch moved on (a newer run judges the newer commit), the PR is from a
@@ -232,18 +214,20 @@ ruleset.
 
 ## 7. Rebuild and recovery
 
-For when a piece of the gate is lost or broken. Every value you need is in
-the 1Password item **LWTV PWA risk gate App** (App ID, Client ID, `.pem`). In
-the commands below, `<op ref>` is that item's `.pem` file reference
-(1Password → the file → Copy Secret Reference). Each fix changes settings, so
+For when a piece of the gate is lost or broken. Each fix changes settings, so
 do it yourself or tell an agent "go ahead" for that one step.
+
+The gate itself is all in the repo: the two workflows, the scripts in
+`.github/scripts/`, and the two lists. Outside the repo there are only the
+`HUMAN_REVIEWERS` variable, the two labels and the ruleset, all in
+[§5](#5-one-time-setup).
 
 ### Every PR is blocked and nothing can merge
 
-The ruleset wants `risk-tier` from the App, and the App isn't posting. With
-no bypass actors, the PR that would fix the gate is blocked too. A repo admin
-can always edit the ruleset, so take `risk-tier` out, fix the gate, then put
-it back.
+The ruleset wants `risk-tier`, and the gate isn't posting it (say, a broken
+workflow on `production`). With no bypass actors, the PR that would fix the
+gate is blocked too. A repo admin can always edit the ruleset, so take
+`risk-tier` out, fix the gate, then put it back.
 
 1. Find the ruleset's ID (it's `27944135` unless it was recreated):
 
@@ -262,91 +246,88 @@ it back.
 
 ### Put the ruleset back, or recreate it
 
-The file has `"integration_id": 0` where the App ID goes. Fill it in on the
-way to the API.
-
 * **Update the existing ruleset:**
 
   ```bash
-  jq --argjson app <App ID> '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[] | select(.context == "risk-tier") | .integration_id) = $app' docs/runbooks/risk-gate-ruleset.json | gh api -X PUT repos/LezWatch/pwa/rulesets/<id> --input -
+  gh api -X PUT repos/LezWatch/pwa/rulesets/<id> --input docs/runbooks/risk-gate-ruleset.json
   ```
 
-* **Recreate it after it was deleted:** the same command, ending in
-  `gh api -X POST repos/LezWatch/pwa/rulesets --input -` instead.
+* **Recreate it after it was deleted:**
 
-Check it: `gh api repos/LezWatch/pwa/rulesets/<id> --jq '.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks'`
-should list all five checks, `risk-tier` with the App ID.
+  ```bash
+  gh api -X POST repos/LezWatch/pwa/rulesets --input docs/runbooks/risk-gate-ruleset.json
+  ```
 
-### Rotate the key (leaked, or lost)
+Check it: `gh api repos/LezWatch/pwa/rulesets/<id> --jq '.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context'`
+should list all five checks.
 
-An App can have several keys at once, so swap them without downtime:
-
-1. App settings (LezWatch org → Settings → Developer settings → GitHub Apps
-   → LezWatch risk gate) → **Private keys** → **Generate a private key**.
-2. Attach the new `.pem` to the 1Password item, replacing the old one, and
-   delete the download.
-3. Put it in the environment, straight from 1Password, so it never sits on
-   disk:
-
-   ```bash
-   op read "<op ref>" | gh secret set RISK_GATE_APP_PRIVATE_KEY --env risk-gate --repo LezWatch/pwa
-   ```
-
-4. Re-run the gate on an open PR (below) and check it posts.
-5. Back in **Private keys**, delete the old one.
-
-**If the key leaked,** delete the old key first, before step 1. The gate then
-errors until the new secret is in, which is safe: it fails closed.
-
-### The environment was deleted
-
-The secret and variable went with it. Recreate all of it from 1Password:
-
-```bash
-gh api -X PUT repos/LezWatch/pwa/environments/risk-gate --input - <<'JSON'
-{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
-JSON
-```
-
-```bash
-gh api -X POST repos/LezWatch/pwa/environments/risk-gate/deployment-branch-policies -f name=production -f type=branch
-```
-
-```bash
-gh variable set RISK_GATE_APP_CLIENT_ID --env risk-gate --repo LezWatch/pwa --body "<Client ID>"
-```
-
-```bash
-op read "<op ref>" | gh secret set RISK_GATE_APP_PRIVATE_KEY --env risk-gate --repo LezWatch/pwa
-```
-
-Check that only `production` can use it:
-`gh api repos/LezWatch/pwa/environments/risk-gate/deployment-branch-policies --jq '.branch_policies[] | {name, type}'`
-should print exactly one line, `production` and `branch`.
-
-### The App was deleted
-
-A new App gets a **new App ID and Client ID**, so it touches everything:
-
-1. Make it again: [§5](#5-one-time-setup), step 3. Update the 1Password item
-   with the new App ID, Client ID and `.pem`.
-2. Replace the environment's variable and secret (the two `gh variable` /
-   `gh secret` commands above).
-3. The ruleset still names the **old** App ID, so every PR is blocked. Point
-   it at the new one: "Put the ruleset back" above, with the new App ID.
-
-### Check a rebuild worked
+### Check the gate works
 
 1. Re-run the gate: on any open PR into `production` or `release/*`, open the
    **Risk tier trigger** run and choose **Re-run all jobs**. Then watch the
    **Risk tier** run on `production` in the Actions tab.
-2. Confirm the status came from the App, not from GitHub Actions:
+2. If **Risk tier** didn't start after the re-run, add and remove any label
+   other than `human-reviewed` on the PR. That fires the trigger too.
+3. Confirm the status landed on the PR's head commit:
 
    ```bash
-   gh api repos/LezWatch/pwa/commits/<PR head SHA>/statuses --jq '.[] | select(.context == "risk-tier") | {state, by: .creator.login}' | head -1
+   gh api repos/LezWatch/pwa/commits/<PR head SHA>/statuses --jq '.[] | select(.context == "risk-tier") | {state, description}' | head -2
    ```
 
-   `by` should be the App's bot name (`lezwatch-risk-gate[bot]` for an App
-   named "LezWatch risk gate"), never `github-actions[bot]`.
-3. If **Risk tier** didn't start after the re-run, add and remove any label
-   other than `human-reviewed` on the PR. That fires the trigger too.
+## 8. Later: post the verdict as a GitHub App
+
+Set aside for now (one developer, who reads every PR). This is the fix for the
+known gap in [§2](#2-how-the-gate-works): a PR faking its own `risk-tier`. The
+verdict gets posted by an App, and the ruleset accepts `risk-tier` from that
+App only, so a copycat from GitHub Actions doesn't count. The workflow code
+for it existed once: `.github/workflows/risk-tier.yml` as merged in PR #31
+(`git show 44be675:.github/workflows/risk-tier.yml`).
+
+**This is a different App from the agents' one** in
+`docs/plans/2026-11-24-agent-github-app.md`. Never give agents this App's key,
+or they could post `risk-tier` themselves.
+
+1. **Make the App.** In the LezWatch org: Settings → Developer settings →
+   GitHub Apps → New GitHub App.
+   * Name: `LezWatch risk gate`. Homepage: the repo URL.
+   * Leave everything under "Identifying and authorizing users" empty and
+     unticked.
+   * Webhook: untick **Active**.
+   * Repository permissions: **Commit statuses: Read and write**. Nothing else.
+   * Where can it be installed: **Only on this account**.
+   * Create it, then generate a private key. Make one 1Password item, **LWTV
+     PWA risk gate App**, holding the App ID, the Client ID and the `.pem`.
+     Delete the download.
+   * Install App → LezWatch → **Only select repositories** → `pwa`.
+2. **The environment.** Repo Settings → Environments → New environment →
+   `risk-gate`. Deployment branches: **Selected branches and tags** → one rule,
+   type **Branch**, name `production`. Then:
+
+   ```bash
+   gh variable set RISK_GATE_APP_CLIENT_ID --env risk-gate --repo LezWatch/pwa --body "<Client ID>"
+   ```
+
+   ```bash
+   op read "<1Password reference to the .pem>" | gh secret set RISK_GATE_APP_PRIVATE_KEY --env risk-gate --repo LezWatch/pwa
+   ```
+
+3. **The workflow**, in a PR: put back from PR #31's version the
+   `environment: risk-gate` line, the "Token for the risk-gate App" step
+   (`actions/create-github-app-token`), and `GH_TOKEN="$APP_TOKEN"` on the four
+   status posts. Drop `statuses: write` from `permissions`.
+4. **The ruleset.** Once the App has posted a status, add `"integration_id":
+   <App ID>` to the `risk-tier` entry in
+   [`risk-gate-ruleset.json`](risk-gate-ruleset.json), and put the ruleset
+   back (§7). Statuses from anything else then don't count.
+5. **Check it:** after a re-run, the status's creator is the App's bot, not
+   `github-actions[bot]`:
+
+   ```bash
+   gh api repos/LezWatch/pwa/commits/<PR head SHA>/statuses --jq '.[] | select(.context == "risk-tier") | .creator.login' | head -1
+   ```
+
+**Once it's in, the App needs upkeep.** If the App is deleted or recreated, it
+gets a new App ID, and the ruleset waits for the old one forever: every PR is
+blocked until you change `integration_id` (§7). To rotate the key, generate a
+new one in the App's settings, replace the secret, then delete the old key. If
+the key leaked, delete the old key first.

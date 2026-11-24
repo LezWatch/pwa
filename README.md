@@ -265,7 +265,7 @@ risky (CI, Docker, config, routes, auth, migrations, the test harness, most of
 `app/`, or anything not on the low-risk list) stays red until Mika reads it and
 adds the `human-reviewed` label. A new push needs a new review. The gate runs
 from `production` (on `workflow_run`), so a PR can't change the gate that
-judges it, and its result only counts if it comes from the risk-gate GitHub App.
+judges it.
 
 How it works, how to approve a PR, and how to move a path between lists:
 [docs/runbooks/risk-gate.md](docs/runbooks/risk-gate.md).

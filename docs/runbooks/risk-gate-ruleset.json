@@ -33,7 +33,7 @@
           { "context": "Docker build" },
           { "context": "security" },
           { "context": "scan-pr / osv-scan" },
-          { "context": "risk-tier", "integration_id": 0 }
+          { "context": "risk-tier" }
         ]
       }
     }
