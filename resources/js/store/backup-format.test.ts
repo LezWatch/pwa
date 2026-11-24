@@ -137,10 +137,48 @@ test('RF1: a composed and a decomposed passphrase are the same', async () => {
     expect(await decryptBackup(await encryptBackup(plain, 'café', FAST), 'café')).toEqual(plain);
 });
 
-test('exportBackup refuses a short passphrase, counted after NFC', async () => {
+test('exportBackup refuses a short passphrase, counted after NFC, and allows exactly 8', async () => {
     await rejectsWith(exportBackup('short'), 'passphrase-too-short');
-    // 7 characters once composed, though 8 code points as typed.
-    await rejectsWith(exportBackup('caféabc'.slice(0, 0) + 'caféab'), 'passphrase-too-short');
+    // 'cafe' + combining acute + 'abc' is 8 code points as typed but 7 once composed.
+    const decomposed = 'cafe\u0301abc';
+    expect([...decomposed]).toHaveLength(8);
+    expect([...decomposed.normalize('NFC')]).toHaveLength(7);
+    await rejectsWith(exportBackup(decomposed), 'passphrase-too-short');
+    // Exactly 8 after NFC is accepted.
+    const { filename } = await exportBackup('cafe\u0301abcd');
+    expect(filename).toMatch(/^lwtv-backup-/);
+});
+
+test('the header is authenticated: known-answer decrypt needs the exact additional data', async () => {
+    const passphrase = 'caf\u00e9 au lait';
+    const file = JSON.parse(await encryptBackup(plain, passphrase, MIN_ITERATIONS));
+    const material = await crypto.subtle.importKey(
+        'raw',
+        new TextEncoder().encode(passphrase.normalize('NFC')),
+        'PBKDF2',
+        false,
+        ['deriveKey'],
+    );
+    const key = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', hash: 'SHA-256', salt: fromBase64Url(file.kdf.salt) as BufferSource, iterations: file.kdf.iterations },
+        material,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['decrypt'],
+    );
+    const iv = fromBase64Url(file.cipher.iv) as BufferSource;
+    const data = fromBase64Url(file.data) as BufferSource;
+    const aad = new TextEncoder().encode(
+        JSON.stringify({
+            format: 'lwtv-backup',
+            version: 1,
+            kdf: { name: 'PBKDF2', hash: 'SHA-256', iterations: file.kdf.iterations, salt: file.kdf.salt },
+            cipher: { name: 'AES-GCM', iv: file.cipher.iv },
+        }),
+    );
+    const opened = await crypto.subtle.decrypt({ name: 'AES-GCM', iv, additionalData: aad }, key, data);
+    expect(JSON.parse(new TextDecoder().decode(opened))).toEqual(plain);
+    await expect(crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data)).rejects.toThrow();
 });
 
 test('exportBackup carries the key, whose x matches publicKeyRaw', async () => {
