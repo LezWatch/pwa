@@ -199,3 +199,9 @@ uses for its deploys:
 The gate posts `risk-tier` with its own `GITHUB_TOKEN`, not as a GitHub App, and the ruleset requires `risk-tier` by name. Mika's call: there's one developer, who reads every PR before merging, and the gate is there to catch slips, not attackers.
 
 The cost: a PR that adds its own job or status named `risk-tier` can fake a pass. That PR has to edit `.github/workflows/`, which is plain in the diff. The App design (Amendment 2) is kept as steps in the runbook, §8, so it can go back in later.
+
+## Amendment 4 (2026-11-24): release branches take direct pushes
+
+Only `production` requires checks (ruleset `protected-branches`, on the default branch). `release/**` has its own ruleset, `release-branches`, which only blocks deletion and force-pushes, so Mika can push to a release branch directly. `risk-tier` still runs on PRs into release branches, as advice.
+
+The release's PR into `production` is the real gate: it judges the whole diff against `production`, and every push to the release branch resets its review. One gap: a reviewed PR that's retargeted from `release/*` to `production` keeps its review, though its new diff may include unreviewed direct pushes. The runbook says to re-review after a retarget.

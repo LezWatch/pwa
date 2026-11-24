@@ -260,7 +260,8 @@ gate's own tests), `Docker build`, and `security` (composer and npm audit, plus
 gitleaks over the PR's commits). PRs into `production` or `release/*` also get
 an OSV-Scanner dependency scan.
 
-PRs into `production` or a `release/*` branch also get `risk-tier`. Anything
+PRs into `production` or a `release/*` branch also get `risk-tier` (required
+to merge into `production`; advice only on release branches). Anything
 risky (CI, Docker, config, routes, auth, migrations, the test harness, most of
 `app/`, or anything not on the low-risk list) stays red until Mika reads it and
 adds the `human-reviewed` label. A new push needs a new review. The gate runs
