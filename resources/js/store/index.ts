@@ -20,3 +20,11 @@ export {
     type RatingValue,
     type Rating,
 } from './shows';
+export {
+    keySupport,
+    getIdentity,
+    getOrCreateIdentity,
+    KeyUnsupportedError,
+    type Identity,
+} from './identity';
+export { storageStatus, requestPersistence, type StorageStatus } from './status';
