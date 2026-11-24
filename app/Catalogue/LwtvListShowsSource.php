@@ -3,7 +3,9 @@
 namespace App\Catalogue;
 
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
+use Throwable;
 
 /**
  * Reads shows from GET {api_url}/wp-json/lwtv/v1/list/shows.
@@ -22,6 +24,7 @@ class LwtvListShowsSource implements CatalogueSource
         try {
             $response = Http::withOptions(['verify' => config('lwtv.verify_tls')])
                 ->timeout(config('lwtv.timeout'))
+                ->retry(config('lwtv.retry_delays'), when: $this->isWorthRetrying(...), throw: false)
                 ->acceptJson()
                 ->get($url);
         } catch (ConnectionException $e) {
@@ -56,6 +59,20 @@ class LwtvListShowsSource implements CatalogueSource
         }
 
         return $shows;
+    }
+
+    /**
+     * Retry what might pass on a second try: the site unreachable, a server
+     * error, or rate limiting. A 404 or 403 won't fix itself.
+     */
+    private function isWorthRetrying(Throwable $e): bool
+    {
+        if ($e instanceof ConnectionException) {
+            return true;
+        }
+
+        return $e instanceof RequestException
+            && ($e->response->serverError() || $e->response->status() === 429);
     }
 
     /** A real entry has a positive numeric id key and an object value. */

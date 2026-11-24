@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.3] - 2026-11-24
+
+### Added
+
+- Add container healthchecks. The scheduler and web containers now wait for a healthy app, so the first sync can't run before the migrations.
+
+### Fixed
+
+- Retry a catalogue fetch after a dropped connection, a server error or rate limiting, instead of losing the whole six-hour sync.
+- See each visitor's real IP and HTTPS behind the host nginx, and only believe forwarded headers from private proxies.
+
 ## [0.0.2] - 2026-11-24
 
 ### Added

@@ -108,7 +108,24 @@ No PHP is needed on the host; everything runs in the containers.
    ```
 
 The stack listens on `127.0.0.1:${APP_PORT}`. Proxy to it from the host nginx,
-which keeps handling the domain and TLS. With `APP_ENV=production`, the app
+which keeps handling the domain and TLS. Have it pass the client's address and
+scheme, so Laravel sees the real IP and knows the request was HTTPS:
+
+```nginx
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+```
+
+Laravel believes those headers only from private addresses (Docker's bridge
+gateway), never from the public internet. `TRUSTED_PROXIES` in `.env` narrows
+the list; see `config/trustedproxy.php`.
+
+`docker compose ps` shows each container's health. `app` is healthy once
+PHP-FPM is listening, after its migrations. `web` is healthy when `/up`
+answers through nginx and PHP-FPM. `web` and `scheduler` wait for a healthy
+`app` before starting.
+
+With `APP_ENV=production`, the app
 container caches config, routes and views on start, so restart it after
 changing `.env`:
 
@@ -127,7 +144,9 @@ The scheduler runs `php artisan lwtv:sync` every six hours. To run it now:
 docker compose exec app php artisan lwtv:sync
 ```
 
-It reads `GET {LWTV_API_URL}/wp-json/lwtv/v1/list/shows`. If the fetch fails,
+It reads `GET {LWTV_API_URL}/wp-json/lwtv/v1/list/shows`. A connection failure,
+a 5xx or a 429 is retried twice, after 2 and then 10 seconds; any other error
+fails straight away. If the fetch still fails,
 or comes back empty or in a shape with no usable shows, the command logs the
 reason, exits with an error, and leaves the cached shows as they were. Every
 run, whether it succeeds or fails, is recorded in the `sync_runs` table, which
