@@ -3,7 +3,7 @@
 **Status:** agreed (see [LezWatch/pwa#35](https://github.com/LezWatch/pwa/issues/35))
 **Date:** 2026-11-23, agreed 2026-11-24
 **Implements:** [LezWatch/lwtv-underscores#755](https://github.com/LezWatch/lwtv-underscores/issues/755) (server) for the screens in `docs/design/screens/`
-**Samples:** `tests/Fixtures/app/catalogue.json`, `tests/Fixtures/app/availability.json`
+**Samples:** `tests/Fixtures/app/catalogue.json`, `tests/Fixtures/app/availability.json`, checked against this doc by `tests/Unit/AppCatalogueContractTest.php`
 
 This is the contract between LezWatch.TV (WordPress) and the PWA's Laravel server. WordPress
 builds it; the Laravel sync (`lwtv:sync`) reads it; the Laravel server then serves its own
