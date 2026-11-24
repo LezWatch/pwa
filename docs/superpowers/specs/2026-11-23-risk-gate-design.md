@@ -193,3 +193,9 @@ uses for its deploys:
 - The gate only runs once it is on `production`, so the ruleset's `risk-tier` check
   goes back on after `release/0.0.1` merges into `production`.
 - Still open: agents running under Mika's own login can add the label themselves.
+
+## Amendment 3 (2026-11-24): no GitHub App for now
+
+The gate posts `risk-tier` with its own `GITHUB_TOKEN`, not as a GitHub App, and the ruleset requires `risk-tier` by name. Mika's call: there's one developer, who reads every PR before merging, and the gate is there to catch slips, not attackers.
+
+The cost: a PR that adds its own job or status named `risk-tier` can fake a pass. That PR has to edit `.github/workflows/`, which is plain in the diff. The App design (Amendment 2) is kept as steps in the runbook, §8, so it can go back in later.
