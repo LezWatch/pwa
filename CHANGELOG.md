@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.2] - 2026-11-24
+
+### Added
+
+- Add tests that hold the catalogue and availability sample files to the API contract, and list every way a response breaks it.
+- Add an `.nvmrc` so local work uses Node 22, like CI.
+
+### Changed
+
+- Agree the catalogue API contract (v1). Trigger levels are now `low`, `med` and `high`, read the same way the show page reads them.
+- Require term dictionaries to list only the terms the shows use.
+- Tell people to run the tests on the host, and explain why not inside the container.
+
 ## [0.0.1] - 2026-11-24
 
 ### Added

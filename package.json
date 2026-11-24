@@ -1,6 +1,6 @@
 {
     "name": "lwtv-pwa",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "description": "LezWatch.TV PWA.",
     "$schema": "https://www.schemastore.org/package.json",
     "private": true,
