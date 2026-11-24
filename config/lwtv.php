@@ -19,4 +19,12 @@ return [
      */
     'timeout' => (int) env('LWTV_API_TIMEOUT', 30),
 
+    /*
+     * Pauses in milliseconds between retries of a failed catalogue request.
+     * One entry per retry, so [2000, 10000] means three tries in all. Only
+     * a connection failure, a 5xx or a 429 is retried; any other error fails
+     * straight away.
+     */
+    'retry_delays' => [2000, 10000],
+
 ];

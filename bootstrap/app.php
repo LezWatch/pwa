@@ -30,6 +30,13 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->group('public', [SubstituteBindings::class]);
         $middleware->group('admin', [UseAdminSession::class, 'web']);
         $middleware->prependToPriorityList(before: StartSession::class, prepend: UseAdminSession::class);
+
+        // Which proxies to trust is in config/trustedproxy.php. Only believe
+        // the client IP, scheme and port: the host comes from APP_URL, so a
+        // forwarded Host or prefix header is never used.
+        $middleware->trustProxies(headers: Request::HEADER_X_FORWARDED_FOR
+            | Request::HEADER_X_FORWARDED_PROTO
+            | Request::HEADER_X_FORWARDED_PORT);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

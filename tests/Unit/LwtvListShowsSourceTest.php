@@ -9,6 +9,7 @@ use App\Catalogue\ShowRecord;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Sleep;
 use Tests\TestCase;
 
 class LwtvListShowsSourceTest extends TestCase
@@ -20,6 +21,7 @@ class LwtvListShowsSourceTest extends TestCase
         parent::setUp();
         config(['lwtv.api_url' => 'https://lwtv.local']);
         Http::preventStrayRequests();
+        Sleep::fake();
     }
 
     private function fakeFixture(): void
@@ -166,6 +168,73 @@ class LwtvListShowsSourceTest extends TestCase
         $ids = array_map(fn ($show) => $show->id, (new LwtvListShowsSource)->shows());
 
         $this->assertSame([27002], $ids);
+    }
+
+    public function test_it_retries_a_server_error_and_succeeds(): void
+    {
+        Http::fakeSequence(self::URL)
+            ->push('oops', 503)
+            ->push(file_get_contents(base_path('tests/Fixtures/list-shows.json')), 200, ['Content-Type' => 'application/json']);
+
+        $this->assertCount(5, (new LwtvListShowsSource)->shows());
+        Http::assertSentCount(2);
+        Sleep::assertSleptTimes(1);
+    }
+
+    public function test_it_retries_a_dropped_connection_and_succeeds(): void
+    {
+        $calls = 0;
+        Http::fake([self::URL => function () use (&$calls) {
+            if (++$calls === 1) {
+                throw new ConnectionException('reset');
+            }
+
+            return Http::response(file_get_contents(base_path('tests/Fixtures/list-shows.json')), 200);
+        }]);
+
+        $this->assertCount(5, (new LwtvListShowsSource)->shows());
+        $this->assertSame(2, $calls);
+    }
+
+    public function test_it_retries_rate_limiting(): void
+    {
+        Http::fakeSequence(self::URL)
+            ->push('slow down', 429)
+            ->push(file_get_contents(base_path('tests/Fixtures/list-shows.json')), 200);
+
+        $this->assertCount(5, (new LwtvListShowsSource)->shows());
+        Http::assertSentCount(2);
+    }
+
+    public function test_it_gives_up_after_the_configured_retries(): void
+    {
+        config(['lwtv.retry_delays' => [2000, 10000]]);
+        Http::fake([self::URL => Http::response('oops', 502)]);
+
+        try {
+            (new LwtvListShowsSource)->shows();
+            $this->fail('Expected CatalogueUnavailable.');
+        } catch (CatalogueUnavailable $e) {
+            $this->assertStringContainsString('HTTP 502', $e->getMessage());
+        }
+
+        Http::assertSentCount(3);
+        Sleep::assertSequence([Sleep::for(2000)->milliseconds(), Sleep::for(10000)->milliseconds()]);
+    }
+
+    public function test_it_does_not_retry_a_client_error(): void
+    {
+        Http::fake([self::URL => Http::response('gone', 404)]);
+
+        try {
+            (new LwtvListShowsSource)->shows();
+            $this->fail('Expected CatalogueUnavailable.');
+        } catch (CatalogueUnavailable $e) {
+            $this->assertStringContainsString('HTTP 404', $e->getMessage());
+        }
+
+        Http::assertSentCount(1);
+        Sleep::assertNeverSlept();
     }
 
     public function test_it_throws_when_upstream_cannot_be_reached(): void

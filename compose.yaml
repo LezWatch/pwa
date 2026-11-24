@@ -16,6 +16,14 @@ services:
       # Google service account key for the admin's group check. Gitignored
       # and kept out of the image; an empty or missing folder is fine.
       - ./secrets:/run/secrets:ro
+    # Healthy once PHP-FPM is listening, which the entrypoint only allows
+    # after migrations and the config cache are done.
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 9000) ? 0 : 1);"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
 
   scheduler:
@@ -25,8 +33,10 @@ services:
     user: www-data
     volumes:
       - lwtv-data:/var/www/html/database/data
+    # Wait for the app's migrations before the first scheduled sync.
     depends_on:
-      - app
+      app:
+        condition: service_healthy
     restart: unless-stopped
 
   web:
@@ -37,7 +47,16 @@ services:
     ports:
       - "127.0.0.1:${APP_PORT:-8069}:80"
     depends_on:
-      - app
+      app:
+        condition: service_healthy
+    # Laravel's /up through nginx and PHP-FPM, so a healthy web container
+    # means the whole request path works.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/up"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
 volumes:
