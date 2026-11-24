@@ -5,6 +5,7 @@ import {
     closeDb,
     getDb,
     isDeletePendingNow,
+    isWiped,
     noteWipeStarted,
     setPendingDelete,
     type StoreMessage,
@@ -45,21 +46,30 @@ async function run(): Promise<void> {
     setPendingDelete(new Promise<void>((resolve) => (settle = resolve)));
     noteWipeStarted();
 
-    try {
-        // 1. Clear on this tab's own connection, before any delete is queued: once
-        //    a delete waits, a new open waits behind it. When this commits, the data is gone.
-        const db = await getDb();
-        const tx = db.transaction([...STORES], 'readwrite');
-        await Promise.all([...STORES.map((name) => tx.objectStore(name).clear()), tx.done]);
-    } catch (error) {
-        settle();
-        throw error;
+    // Another tab already wiped: it cleared the stores before telling us, and its
+    // delete may still be waiting on a tab that holds on. Anything we queue now
+    // (an open to clear, or our own delete) would wait behind that delete.
+    const alreadyWiped = isWiped();
+
+    // 1. Clear on this tab's own connection, before any delete is queued: once
+    //    a delete waits, a new open waits behind it. When this commits, the data is gone.
+    if (!alreadyWiped) {
+        try {
+            const db = await getDb();
+            const tx = db.transaction([...STORES], 'readwrite');
+            await Promise.all([...STORES.map((name) => tx.objectStore(name).clear()), tx.done]);
+        } catch (error) {
+            settle();
+            throw error;
+        }
     }
 
     // 2. Tell the other tabs.
     channel().postMessage({ type: 'wipe' } satisfies StoreMessage);
 
-    // 3-7. Let go, ask for the delete, and resolve on success or blocked.
+    // 3-7. Let go, ask for the delete, and resolve on success or blocked. An
+    //      already-wiped tab resolves once the delete is asked for, since it may
+    //      be queued behind the other tab's, which fires neither until that one ends.
     closeDb();
     await new Promise<void>((resolve) => {
         const request = indexedDB.deleteDatabase(DB_NAME);
@@ -72,6 +82,7 @@ async function run(): Promise<void> {
         request.onerror = finished;
         request.onblocked = () => resolve();
         clearWebStorage();
+        if (alreadyWiped) resolve();
     });
 }
 

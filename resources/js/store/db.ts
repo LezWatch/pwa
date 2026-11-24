@@ -52,6 +52,11 @@ export function markWiped(): void {
     wiped = true;
 }
 
+/** True once this tab was told another tab wiped the data. */
+export function isWiped(): boolean {
+    return wiped;
+}
+
 export function assertWritable(): void {
     if (wiped) {
         throw new StoreWipedError();
