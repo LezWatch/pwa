@@ -1,4 +1,4 @@
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction, type StoreNames } from 'idb';
 import type { Settings } from './settings';
 
 export const DB_NAME = 'lwtv';
@@ -98,6 +98,34 @@ export function getDb(): Promise<IDBPDatabase<LwtvSchema>> {
         });
     }
     return dbPromise;
+}
+
+/**
+ * Runs `work` in one readwrite transaction over `storeNames`. Refuses if this
+ * tab was wiped, waits out a pending delete, and aborts the transaction if
+ * `work` throws. Resolves with `work`'s result once the transaction commits.
+ */
+export async function writeTx<Names extends StoreNames<LwtvSchema>[], R>(
+    storeNames: [...Names],
+    work: (tx: IDBPTransaction<LwtvSchema, Names, 'readwrite'>) => Promise<R>,
+): Promise<R> {
+    assertWritable();
+    await whenDeleteSettles();
+    const db = await getDb();
+    const tx = db.transaction(storeNames, 'readwrite');
+    try {
+        const result = await work(tx);
+        await tx.done;
+        return result;
+    } catch (error) {
+        try {
+            tx.abort();
+        } catch {
+            // Already finished or aborted.
+        }
+        await tx.done.catch(() => {});
+        throw error;
+    }
 }
 
 export function closeDb(): void {

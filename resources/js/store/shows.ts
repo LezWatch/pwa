@@ -1,4 +1,4 @@
-import { assertWritable, getDb, whenDeleteSettles, type RatingRecord } from './db';
+import { getDb, writeTx, type RatingRecord } from './db';
 
 export type RatingValue = 1 | 2 | 3 | 4 | 5;
 export type Rating = { showId: number; value: RatingValue; ratedAt: number };
@@ -43,35 +43,9 @@ export async function listRatings(): Promise<Rating[]> {
     return all.sort((a, b) => a.showId - b.showId);
 }
 
-/** Runs `work` in one readwrite transaction over both stores; aborts on failure. */
-async function write(
-    work: (tx: Awaited<ReturnType<typeof openTx>>) => Promise<void>,
-): Promise<void> {
-    assertWritable();
-    await whenDeleteSettles();
-    const tx = await openTx();
-    try {
-        await work(tx);
-        await tx.done;
-    } catch (error) {
-        try {
-            tx.abort();
-        } catch {
-            // Already finished or aborted.
-        }
-        await tx.done.catch(() => {});
-        throw error;
-    }
-}
-
-async function openTx() {
-    const db = await getDb();
-    return db.transaction(['watched', 'ratings'], 'readwrite');
-}
-
 export async function setWatched(showId: number, watched: boolean): Promise<void> {
     checkId(showId);
-    await write(async (tx) => {
+    await writeTx(['watched', 'ratings'], async (tx) => {
         if (watched) {
             if ((await tx.objectStore('watched').get(showId)) === undefined) {
                 await tx.objectStore('watched').put({ showId, watchedAt: Date.now() });
@@ -86,7 +60,7 @@ export async function setWatched(showId: number, watched: boolean): Promise<void
 export async function setRating(showId: number, value: RatingValue): Promise<void> {
     checkId(showId);
     checkValue(value);
-    await write(async (tx) => {
+    await writeTx(['watched', 'ratings'], async (tx) => {
         if ((await tx.objectStore('watched').get(showId)) === undefined) {
             throw new ShowError('Mark the show as watched before rating it.');
         }

@@ -1,4 +1,4 @@
-import { assertWritable, getDb, whenDeleteSettles } from './db';
+import { getDb, writeTx } from './db';
 
 export interface Settings {
     schema: 1;
@@ -114,26 +114,13 @@ export async function getSettings(): Promise<Settings> {
  * saves can't lose each other's changes. A failed validation puts nothing.
  */
 async function update(patch: (current: Settings) => Partial<Settings>): Promise<Settings> {
-    assertWritable();
-    await whenDeleteSettles();
-    const db = await getDb();
-    const tx = db.transaction('settings', 'readwrite');
-    try {
+    return writeTx(['settings'], async (tx) => {
         const stored = await tx.store.get(KEY);
         const current = validateSettings({ ...defaultSettings(), ...stored });
         const next = validateSettings({ ...current, ...patch(current) });
         await tx.store.put(next, KEY);
-        await tx.done;
         return next;
-    } catch (error) {
-        try {
-            tx.abort();
-        } catch {
-            // Already finished or aborted.
-        }
-        await tx.done.catch(() => {});
-        throw error;
-    }
+    });
 }
 
 export function saveSettings(patch: Partial<Settings>): Promise<Settings> {
