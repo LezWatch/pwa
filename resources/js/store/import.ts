@@ -1,7 +1,7 @@
 import { BackupError, decryptBackup } from './backup-format';
 import { channel, currentWipeGeneration, writeTx, type IdentityRecord } from './db';
 import { getIdentity } from './identity';
-import { fromBase64Url } from './base64url';
+import { fromBase64Url, toBase64Url } from './base64url';
 import { validateSettings, SettingsError, type Settings } from './settings';
 import type { Rating } from './shows';
 
@@ -49,16 +49,19 @@ async function validateIdentity(v: unknown): Promise<Validated['identity']> {
 
     let privateKey: CryptoKey;
     let publicKey: CryptoKey;
+    let publicKeyRaw: string;
     try {
         privateKey = await crypto.subtle.importKey('jwk', v.privateJwk as JsonWebKey, 'Ed25519', true, ['sign']);
         publicKey = await crypto.subtle.importKey('jwk', v.publicJwk as JsonWebKey, 'Ed25519', true, ['verify']);
         const signature = await crypto.subtle.sign('Ed25519', privateKey, TEST_MESSAGE);
         if (!(await crypto.subtle.verify('Ed25519', publicKey, signature, TEST_MESSAGE))) invalid();
+        // From the key itself, so the file's spelling of `x` is never what gets stored.
+        publicKeyRaw = toBase64Url(await crypto.subtle.exportKey('raw', publicKey));
     } catch {
         invalid();
     }
 
-    return { alg: 'Ed25519', privateKey, publicKey, publicKeyRaw: x as string, createdAt };
+    return { alg: 'Ed25519', privateKey, publicKey, publicKeyRaw, createdAt };
 }
 
 async function validate(plain: unknown): Promise<Validated> {

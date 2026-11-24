@@ -228,3 +228,18 @@ test('a key that appears after the early check still needs confirmation', async 
     await expectDeviceUntouched();
     expect((await getIdentity())!.publicKeyRaw).toBe(before);
 });
+
+test('publicKeyRaw comes from the imported key, not the spelling of the file\'s x', async () => {
+    const key = await keyFixture();
+    const canonical = key.publicJwk.x!;
+    // The last of 43 characters carries 2 unused bits; setting one spells the same 32 bytes differently.
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const last = alphabet.indexOf(canonical.at(-1)!);
+    const odd = canonical.slice(0, -1) + alphabet[last ^ 1];
+    expect(odd).not.toBe(canonical);
+    key.publicJwk.x = odd;
+    key.privateJwk.x = odd;
+
+    await importBackup(await fileOf(base(key)), PASS);
+    expect((await getIdentity())?.publicKeyRaw).toBe(canonical);
+});
