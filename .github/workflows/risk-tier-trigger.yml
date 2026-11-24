@@ -1,0 +1,19 @@
+name: Risk tier trigger
+
+# Does nothing itself. Finishing is what starts the real gate, risk-tier.yml, which runs
+# on workflow_run from the default branch, out of this PR's reach. A PR can edit or delete
+# this file, but then the gate never reports and the PR stays blocked (fail closed).
+on:
+  pull_request:
+    branches: [production, 'release/**']
+    # `edited` covers a changed base branch; `labeled`/`unlabeled` re-run the gate when
+    # Mika adds or removes human-reviewed.
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+
+permissions: {}
+
+jobs:
+  trigger:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "The risk tier gate runs next, from the default branch."

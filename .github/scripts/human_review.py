@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Decide whether a listed human has reviewed a PR's current head commit.
 
-Prints one JSON object: {"approved": bool, "reason": str}
+Prints one JSON object: {"approved": bool, "reason": str, "remove_label": bool}
 Always exits 0; the risk-tier workflow decides pass/fail. Any error yields
 "approved": false (fail closed).
+
+remove_label is true when the label is on the PR but doesn't count (it predates the
+latest push, or someone not listed added it), so the gate can take it off and Mika can
+simply add it again. It is false whenever the answer is uncertain.
 
 Approved means: the latest `labeled human-reviewed` event by a User whose login is in
 HUMAN_REVIEWERS came after the last time the head SHA was pushed to the PR's branch,
@@ -65,10 +69,12 @@ def decide(events, activity, head_sha, reviewers_text):
     ordered = label_events(events)
     reviewers = parse_reviewers(reviewers_text)
     if not reviewers:
-        return {"approved": False, "reason": "HUMAN_REVIEWERS is unset, so nobody can approve."}
+        return {"approved": False, "remove_label": False,
+                "reason": "HUMAN_REVIEWERS is unset, so nobody can approve."}
     if pushed is None:
-        return {"approved": False,
+        return {"approved": False, "remove_label": False,
                 "reason": f"Couldn't tell when {head_sha[:7]} was pushed: it isn't the branch's newest recorded push."}
+    label_on = bool(ordered) and ordered[-1]["event"] == "labeled"
     approval = None
     for index, event in enumerate(ordered):
         actor = event.get("actor") or {}
@@ -77,12 +83,13 @@ def decide(events, activity, head_sha, reviewers_text):
                 and _time(event["created_at"]) > pushed):
             approval = index
     if approval is None:
-        return {"approved": False,
+        return {"approved": False, "remove_label": label_on,
                 "reason": f"No {LABEL} label from a listed reviewer since {head_sha[:7]} was pushed."}
     if any(e["event"] == "unlabeled" for e in ordered[approval + 1:]):
-        return {"approved": False, "reason": f"The {LABEL} label was removed after the review."}
+        return {"approved": False, "remove_label": label_on,
+                "reason": f"The {LABEL} label was removed after the review."}
     event = ordered[approval]
-    return {"approved": True,
+    return {"approved": True, "remove_label": False,
             "reason": f"Reviewed by @{event['actor']['login']} at {event['created_at']}."}
 
 
@@ -100,7 +107,7 @@ def main(argv=None):
             activity = json.load(fh)
         result = decide(events, activity, args.head_sha, args.reviewers)
     except Exception as exc:  # fail closed on anything unexpected
-        result = {"approved": False,
+        result = {"approved": False, "remove_label": False,
                   "reason": f"review check failed, treating as not reviewed: {exc!r}"}
     print(json.dumps(result))
     return 0
