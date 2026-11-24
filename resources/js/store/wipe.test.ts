@@ -6,6 +6,8 @@ import { getSettings, saveSettings, defaultSettings } from './settings';
 import { setWatched, setRating, listWatched, listRatings, isWatched, getRating } from './shows';
 import { storageStatus } from './status';
 import { wipeEverything, onWiped, isDeletePending } from './wipe';
+import { MIN_ITERATIONS, encryptBackup } from './backup-format';
+import { importBackup } from './import';
 import * as index from './index';
 
 async function seedAll() {
@@ -386,4 +388,49 @@ test('onWiped returns an unsubscribe', async () => {
     await vi.waitFor(async () => expect(await dbNames()).not.toContain('lwtv'), { timeout: 2000 });
     expect(cb).not.toHaveBeenCalled();
     await expect(b.index.saveSettings({})).rejects.toBeInstanceOf(b.index.StoreWipedError);
+});
+
+test('an import that starts before a wipe on this tab is refused, not landed in the fresh database', async () => {
+    const plain = {
+        schema: 1,
+        exportedAt: 1,
+        settings: { ...defaultSettings(), region: 'GB', setupComplete: true },
+        watched: [{ showId: 20, watchedAt: 1 }],
+        ratings: [],
+        identity: null,
+    } as const;
+    const file = new Blob([await encryptBackup(structuredClone(plain) as never, 'correct horse', MIN_ITERATIONS)]);
+
+    const importing = importBackup(file, 'correct horse').then(
+        () => 'ok',
+        (e: Error) => e.name,
+    );
+    await wipeEverything();
+
+    expect(await importing).toBe('StoreWipedError');
+    await expectEmpty();
+});
+
+test('a key creation that starts before a wipe on this tab is refused; a later one makes a fresh key', async () => {
+    const creating = getOrCreateIdentity().then(
+        () => 'ok',
+        (e: Error) => e.name,
+    );
+    await wipeEverything();
+
+    // Asked again after the wipe: not handed the refused creation.
+    const fresh = await getOrCreateIdentity();
+    expect(await creating).toBe('StoreWipedError');
+    expect((await getIdentity())?.publicKeyRaw).toBe(fresh.publicKeyRaw);
+});
+
+test('a key creation that starts before a wipe stores nothing', async () => {
+    const creating = getOrCreateIdentity().then(
+        () => 'ok',
+        (e: Error) => e.name,
+    );
+    await wipeEverything();
+
+    expect(await creating).toBe('StoreWipedError');
+    await expectEmpty();
 });

@@ -1,5 +1,5 @@
 import { BackupError, decryptBackup } from './backup-format';
-import { channel, writeTx, type IdentityRecord } from './db';
+import { channel, currentWipeGeneration, writeTx, type IdentityRecord } from './db';
 import { getIdentity } from './identity';
 import { fromBase64Url } from './base64url';
 import { validateSettings, SettingsError, type Settings } from './settings';
@@ -115,6 +115,8 @@ export async function importBackup(
     passphrase: string,
     opts?: { allowKeyChange?: boolean },
 ): Promise<void> {
+    // A wipe that starts while we decrypt and validate refuses the write below.
+    const since = currentWipeGeneration();
     if (file.size > MAX_BYTES) throw new BackupError('not-a-backup');
 
     const data = await validate(await decryptBackup(await file.text(), passphrase));
@@ -143,7 +145,7 @@ export async function importBackup(
         if (data.identity) {
             await tx.objectStore('identity').put({ id: 'primary', ...data.identity }, 'primary');
         }
-    });
+    }, since);
 
     channel().postMessage({ type: 'replaced' } satisfies import('./db').StoreMessage);
 }

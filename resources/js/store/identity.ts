@@ -1,4 +1,4 @@
-import { readDb, writeTx, type IdentityRecord } from './db';
+import { currentWipeGeneration, readDb, writeTx, type IdentityRecord } from './db';
 import { toBase64Url } from './base64url';
 
 export type Identity = Omit<IdentityRecord, 'id'>;
@@ -49,8 +49,10 @@ export async function getIdentity(): Promise<Identity | null> {
 }
 
 let creating: Promise<Identity> | null = null;
+// The wipe count when `creating` started: a creation from before a wipe is not shared after it.
+let creatingSince = 0;
 
-async function create(): Promise<Identity> {
+async function create(since: number): Promise<Identity> {
     const existing = await getIdentity();
     if (existing) return existing;
 
@@ -73,13 +75,18 @@ async function create(): Promise<Identity> {
         if (winner) return toIdentity(winner);
         await tx.store.put(record, KEY);
         return toIdentity(record);
-    });
+    }, since);
 }
 
 /** Called only when a person saves their first rating. Makes the key once, never twice. */
 export function getOrCreateIdentity(): Promise<Identity> {
-    creating ??= create().finally(() => {
-        creating = null;
-    });
+    const since = currentWipeGeneration();
+    if (!creating || creatingSince !== since) {
+        const attempt: Promise<Identity> = create(since).finally(() => {
+            if (creating === attempt) creating = null;
+        });
+        creating = attempt;
+        creatingSince = since;
+    }
     return creating;
 }

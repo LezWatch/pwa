@@ -73,6 +73,15 @@ export function noteWipeStarted(): void {
     wipeGeneration++;
 }
 
+/**
+ * The wipe count to hand to writeTx's `since`. An operation that does slow work
+ * before it writes captures this when it starts, so a wipe that begins in the
+ * meantime refuses its write.
+ */
+export function currentWipeGeneration(): number {
+    return wipeGeneration;
+}
+
 export function isDeletePendingNow(): boolean {
     return pendingDelete !== null;
 }
@@ -140,18 +149,23 @@ export async function readDb<R>(fallback: () => R, read: (db: IDBPDatabase<LwtvS
  * Runs `work` in one readwrite transaction over `storeNames`. Refuses if this
  * tab was wiped, waits out a pending delete, and aborts the transaction if
  * `work` throws. Resolves with `work`'s result once the transaction commits.
+ * `since` (from currentWipeGeneration) dates the write from an earlier start:
+ * if this tab began a wipe after it, the write is refused.
  */
 export async function writeTx<Names extends StoreNames<LwtvSchema>[], R>(
     storeNames: [...Names],
     work: (tx: IDBPTransaction<LwtvSchema, Names, 'readwrite'>) => Promise<R>,
+    since: number = wipeGeneration,
 ): Promise<R> {
     assertWritable();
-    const generation = wipeGeneration;
+    if (wipeGeneration !== since) {
+        throw new StoreWipedError();
+    }
     await whenDeleteSettles();
     const db = await getDb();
     // A wipe may have landed while we waited: from another tab, or one this tab started.
     assertWritable();
-    if (wipeGeneration !== generation) {
+    if (wipeGeneration !== since) {
         throw new StoreWipedError();
     }
     let tx: IDBPTransaction<LwtvSchema, Names, 'readwrite'>;
