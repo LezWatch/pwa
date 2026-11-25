@@ -277,6 +277,12 @@ Tests never call lezwatchtv.com or lwtv.local.
 `tests/Fixtures/app/` to the [catalogue API contract](docs/api/app-catalogue-v1.md).
 If you change one, change the other.
 
+### Front-end tests
+
+The on-device store in `resources/js/store/` is TypeScript, tested with Vitest
+against `fake-indexeddb`. Run `npm test` and `npm run typecheck` on the host
+(Node 22), not in a container.
+
 ## Pull request checks
 
 Every pull request runs `PHPUnit` (with Pint, lockfile checks and the risk
