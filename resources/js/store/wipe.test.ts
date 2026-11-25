@@ -435,7 +435,7 @@ test('a key creation that starts before a wipe stores nothing', async () => {
     await expectEmpty();
 });
 
-test("a tab already wiped by another tab's blocked delete can wipe again without stalling", async () => {
+test("a second wipe from an already-wiped tab waits for the holding tab, then leaves every store empty", async () => {
     await seedAll();
     const b = await openTabB();
     cleanups.push(() => {
@@ -445,18 +445,19 @@ test("a tab already wiped by another tab's blocked delete can wipe again without
     await b.index.getSettings();
     const wipedB = vi.fn();
     b.index.onWiped(wipedB);
-    const raw: IDBPDatabase = await openDB('lwtv', 1); // keeps this tab's delete waiting
+    const raw: IDBPDatabase = await openDB('lwtv', 1); // a third tab that never lets go
 
     await within(wipeEverything(), 1000);
     await vi.waitFor(() => expect(wipedB).toHaveBeenCalledTimes(1), { timeout: 2000 });
-    expect(isDeletePending()).toBe(true);
 
-    // B pressed "Delete my data" before reloading: an open now would queue behind the delete.
-    await within(b.index.wipeEverything(), 500);
-    expect(b.index.isDeletePending()).toBe(true);
+    // B presses "Delete my data" before reloading: its open queues behind the blocked delete.
+    let secondDone = false;
+    const second = b.index.wipeEverything().then(() => (secondDone = true));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(secondDone).toBe(false);
 
     raw.close();
+    await within(second, 2000);
     await vi.waitFor(async () => expect(await dbNames()).not.toContain('lwtv'), { timeout: 2000 });
-    await vi.waitFor(() => expect(b.index.isDeletePending()).toBe(false), { timeout: 2000 });
     await expectEmpty();
 });

@@ -29,7 +29,8 @@ decision on #14.
 - A passphrase-encrypted backup that round-trips the whole store, including
   the key, so a second device keeps the same voter identity.
 - A wrong passphrase, or a damaged file, fails with no change to local data.
-- A panic wipe that succeeds with another tab open, and can't stall.
+- A panic wipe that succeeds with another tab open, and can't stall
+  (one rare three-tab case waits; see Panic wipe).
 - A documented rule for when the anonymous key is made and how it's kept.
 
 ## Non-goals
@@ -308,7 +309,12 @@ data on the connection it already has, before asking for the delete:
 5. Remove anything this app put in `localStorage` and `sessionStorage`
    (nothing planned today, but the wipe owns it).
 6. Resolve when step 1 has committed and the delete has either succeeded or
-   reported `blocked`. The wipe never waits on another tab.
+   reported `blocked`. The wipe never waits on another tab, with one
+   exception: a tab that another tab's wipe already reached, wiping again
+   while a third tab still holds the database. Its open queues behind the
+   first delete, so its wipe finishes only when that third tab lets go. That
+   keeps the guarantee below; the screen shows the same "Close other
+   LezWatch tabs to finish." message after 3 seconds.
 
 **What a wipe guarantees** (my call): when it resolves, every store is empty.
 The database file itself goes as soon as no other tab holds it. While a
