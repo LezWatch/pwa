@@ -446,6 +446,7 @@ test("a second wipe from an already-wiped tab waits for the holding tab, then le
     const wipedB = vi.fn();
     b.index.onWiped(wipedB);
     const raw: IDBPDatabase = await openDB('lwtv', 1); // a third tab that never lets go
+    cleanups.push(() => raw.close());
 
     await within(wipeEverything(), 1000);
     await vi.waitFor(() => expect(wipedB).toHaveBeenCalledTimes(1), { timeout: 2000 });
